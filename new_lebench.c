@@ -199,7 +199,7 @@ void write_bench(int file_size){
         for (i = 0; i < file_size; i++) {
 		buf[i] = i%93 + 33;
         }
-        fd = open("test_file.txt", O_CREAT | O_WRONLY);
+        fd = open("test_file.txt", O_CREAT | O_WRONLY, S_IRUSR | S_IWUSR);
         if (fd < 0){
 	       	printf("invalid fd in write: %d\n", fd);
 		exit(0);
@@ -250,7 +250,7 @@ void read_bench(int file_size){
         }
 	fd = open("test_file.txt", O_RDONLY);
         if (fd < 0) {
-		printf("invalid fd in read: %d\n", fd);
+		perror("invalid fd in read\n");
 		exit(0);
 	}
 
@@ -280,7 +280,7 @@ void read_bench(int file_size){
         return;
 }
 
-#define sock "/my_sock"
+#define sock "./my_sock"
 void send_bench(int msg_size){
 	struct timespec startTime = { 0, 0 }, endTime = { 0, 0 };
 	struct timespec diffTime = { 0, 0 }, aveTime = { 0, 0 };
@@ -658,9 +658,9 @@ void pagefault_bench(int file_size){
 	char a[file_size];
 
 	for(l = 0; l < LOOP; l++){
-	        fd = open("tmp_file.txt", O_CREAT | O_WRONLY);
+	        fd = open("tmp_file.txt", O_CREAT | O_WRONLY, S_IRUSR | S_IWUSR);
 	        if (fd < 0){
-		       	printf("invalid fd in write: %d\n", fd);
+		       	perror("invalid fd in write\n");
 			exit(0);
 		}
 
@@ -758,19 +758,19 @@ int main(void){
 #ifdef REF_TEST
 	printf("Starting reference benchmarks\n");
 
-	fp = fopen("/new_lebench_clock.csv", "w");
+	fp = fopen("./new_lebench_clock.csv", "w");
 	fprintf(fp, "Sr,latency\n");
 	fflush(fp);
 	clock_bench();
 	fclose(fp);
 
-	fp = fopen("/new_lebench_cpu.csv", "w");
+	fp = fopen("./new_lebench_cpu.csv", "w");
 	fprintf(fp, "Sr,latency\n");
 	fflush(fp);
 	cpu_bench();
 	fclose(fp);
 	
-	fp = fopen("/new_lebench_getppid.csv", "w");
+	fp = fopen("./new_lebench_getppid.csv", "w");
 	fprintf(fp, "Sr,latency\n");
 	fflush(fp);
 	getppid_bench();
@@ -783,7 +783,7 @@ int main(void){
 #ifdef THREAD_TEST
 	printf("Running Thread Create benchmarks\n");
 
-	fp = fopen("/new_lebench_thread.csv", "w");
+	fp = fopen("./new_lebench_thread.csv", "w");
 
 	fprintf(fp, "Sr,LatencyParent,LatencyChild\n");
 	fflush(fp);
@@ -798,7 +798,7 @@ int main(void){
 //*************************************
 
 #ifdef FORK_TEST
-	fp = fopen("/new_lebench_fork.csv", "w");
+	fp = fopen("./new_lebench_fork.csv", "w");
 
 	fprintf(fp, "Sr,LatencyParent,LatencyChild\n");
 	fflush(fp);
@@ -813,7 +813,7 @@ int main(void){
 //*************************************
 
 #ifdef SEND_TEST
-	fp = fopen("/new_lebench_send.csv", "w");
+	fp = fopen("./new_lebench_send.csv", "w");
 
 	fprintf(fp, "Sr,Size,Latency\n");
 	fflush(fp);
@@ -839,7 +839,7 @@ int main(void){
 //*************************************
 
 #ifdef RECV_TEST
-	fp = fopen("/new_lebench_recv.csv", "w");
+	fp = fopen("./new_lebench_recv.csv", "w");
 
 	fprintf(fp, "Sr,Size,Latency\n");
 	fflush(fp);
@@ -865,7 +865,7 @@ int main(void){
 //*************************************
 
 #ifdef WRITE_TEST
-	fp = fopen("/new_lebench_write.csv", "w");
+	fp = fopen("./new_lebench_write.csv", "w");
 
 	fprintf(fp, "Sr,Size,Latency\n");
 	fflush(fp);
@@ -891,7 +891,7 @@ int main(void){
 //*************************************
 	
 #ifdef READ_TEST
-	fp = fopen("/new_lebench_read.csv", "w");
+	fp = fopen("./new_lebench_read.csv", "w");
 	
 	fprintf(fp, "Sr,Size,Latency\n");
 	fflush(fp);
@@ -917,7 +917,7 @@ int main(void){
 //*************************************
 	
 #ifdef PF_TEST
-	fp = fopen("/new_lebench_pagefault.csv", "w");
+	fp = fopen("./new_lebench_pagefault.csv", "w");
 	
 	fprintf(fp, "Sr,Size,Latency\n");
 	fflush(fp);
@@ -941,7 +941,7 @@ int main(void){
 //*************************************
 
 #ifdef ST_PF_TEST
-	fp = fopen("/new_lebench_stackpagefault.csv", "w");
+	fp = fopen("./new_lebench_stackpagefault.csv", "w");
 	
 	fprintf(fp, "Sr,Size,Latency\n");
 	fflush(fp);
