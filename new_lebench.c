@@ -39,6 +39,13 @@
 
 FILE *fp;
 
+struct Record
+{
+	size_t size;
+	struct timespec start;
+	struct timespec end;
+};
+
 //---------------------------------------------------------------------
 #ifdef USE_VMALLOC
 extern void *vmalloc(unsigned long size);
@@ -796,6 +803,76 @@ void stack_pagefault_bench(int file_size)
 	return;
 }
 
+static void select_bench(size_t fd_count, int iters)
+{
+	struct Record *runs;
+	int *fds;
+	fd_set rfds;
+	struct timeval timeout;
+	int maxFd = 0;
+
+	FD_ZERO(&rfds);
+	timeout.tv_sec = 0;
+	timeout.tv_usec = 0;
+
+#if defined(USE_VMALLOC)
+	fds = (int *)vmalloc(sizeof(int) * fd_count);
+	runs = (struct Record *)vmalloc(sizeof(struct Record) * iters);
+#elif defined(USE_MALLOC)
+	fds = (int *)malloc(sizeof(int) * fd_count);
+	runs = (struct Record *)malloc(sizeof(struct Record) * iters);
+#else
+	fds = (int *)mmap(NULL, sizeof(int) * fd_count, PROT_READ | PROT_WRITE,
+					MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+	runs = (struct Record *)mmap(NULL, sizeof(struct Record) * iters, PROT_READ | PROT_WRITE,
+								MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+#endif
+
+	for (size_t i = 0; i < fd_count; i++)
+	{
+		fds[i] = socket(AF_INET, SOCK_STREAM, 0);
+		if (fds[i] < 0)
+		{
+			i--;
+			continue;
+		}
+		if (fds[i] > maxFd)
+			maxFd = fds[i];
+		FD_SET(fds[i], &rfds);
+	}
+
+	memset(runs, 0, sizeof(struct Record) * iters);
+	for (int i = 0; i < iters; i++)
+	{
+		clock_gettime(CLOCK_MONOTONIC, &runs[i].start);
+		syscall(SYS_select, maxFd + 1, &rfds, NULL, NULL, &timeout);
+		clock_gettime(CLOCK_MONOTONIC, &runs[i].end);
+	}
+
+	for (size_t i = 0; i < fd_count; i++)
+	{
+		close(fds[i]);
+	}
+
+	for (int i = 0; i < iters; i++)
+	{
+		struct timespec diff;
+		calc_diff(&diff, &runs[i].end, &runs[i].start);
+		fprintf(fp, "%d,%ld,%ld.%09ld\n", i, fd_count, diff.tv_sec, diff.tv_nsec);
+	}
+	fflush(fp);
+
+#if defined(USE_VMALLOC)
+	vfree(fds);
+	vfree(runs);
+#elif defined(USE_MALLOC)
+	free(fds);
+	free(runs);
+#else
+	munmap(fds, sizeof(int) * fd_count);
+	munmap(runs, sizeof(struct Record) * iters);
+#endif
+}
 //---------------------------------------------------------------------
 
 #ifdef BYPASS
@@ -1044,6 +1121,21 @@ int main(void)
 			fflush(stdout);
 		}
 	}
+
+	fclose(fp);
+#endif
+
+#ifdef SELECT_TEST
+	fp = fopen("./new_lebench_select.csv", "w");
+	fprintf(fp, "Index,Size,Latency\n");
+
+	printf("Running select test small\n");
+	fflush(stdout);
+	select_bench(10, LOOP);
+
+	printf("Running select test large\n");
+	fflush(stdout);
+	select_bench(1000, LOOP);
 
 	fclose(fp);
 #endif
