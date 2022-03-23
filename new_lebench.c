@@ -1003,6 +1003,117 @@ static void select_bench(size_t fd_count, int iters)
 	munmap(runs, sizeof(struct Record) * iters);
 #endif
 }
+
+static void context_switch_bench(void)
+{
+	int iter = 1000;
+	int fds1[2], fds2[2], retval;
+	retval = pipe(fds1);
+	if (retval != 0)
+		printf("[error] failed to open pipe1.\n");
+	retval = pipe(fds2);
+	if (retval != 0)
+		printf("[error] failed to open pipe2.\n");
+
+	char w = 'a', r;
+	cpu_set_t cpuset;
+	int prio;
+	struct Record *runs;
+
+	retval = sched_getaffinity(getpid(), sizeof(cpuset), &cpuset);
+	if (retval == -1)
+		printf("[error] failed to get affinity.\n");
+	prio = getpriority(PRIO_PROCESS, 0);
+	if (prio == -1)
+		printf("[error] failed to get priority.\n");
+
+	int forkId = fork();
+	if (forkId > 0) { // is parent
+		retval = close(fds1[0]);
+		if (retval != 0)
+			printf("[error] failed to close fd1.\n");
+		retval = close(fds2[1]);
+		if (retval != 0)
+			printf("[error] failed to close fd2.\n");
+
+		cpu_set_t set;
+		CPU_ZERO(&set);
+		CPU_SET(0, &set);
+		retval = sched_setaffinity(getpid(), sizeof(set), &set);
+		if (retval == -1)
+		printf("[error] failed to set processor affinity.\n");
+		retval = setpriority(PRIO_PROCESS, 0, -20);
+		if (retval == -1)
+		printf("[error] failed to set process priority.\n");
+
+		runs = mmap(NULL, sizeof(struct Record) * iter, PROT_READ | PROT_WRITE,
+					MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+		memset(runs, 0, sizeof(struct Record) * iter);
+
+		read(fds2[0], &r, 1);
+
+		for (int i = 0; i < iter; i++) {
+			clock_gettime(CLOCK_MONOTONIC, &runs[i].start);
+			write(fds1[1], &w, 1);
+			read(fds2[0], &r, 1);
+			clock_gettime(CLOCK_MONOTONIC, &runs[i].end);
+		}
+		int status;
+		wait(&status);
+
+		close(fds1[1]);
+		close(fds2[0]);
+
+
+	} else if (forkId == 0){
+
+		retval = close(fds1[1]);
+		if (retval != 0)
+			printf("[error] failed to close fd1.\n");
+		retval = close(fds2[0]);
+		if (retval != 0)
+			printf("[error] failed to close fd2.\n");
+
+		cpu_set_t set;
+		CPU_ZERO(&set);
+		CPU_SET(0, &set);
+		retval = sched_setaffinity(getpid(), sizeof(set), &set);
+		if (retval == -1)
+			printf("[error] failed to set processor affinity.\n");
+		retval = setpriority(PRIO_PROCESS, 0, -20);
+		if (retval == -1)
+			printf("[error] failed to set process priority.\n");
+
+		write(fds2[1], &w, 1);
+		for (int i = 0; i < iter; i++) {
+			read(fds1[0], &r, 1);
+			write(fds2[1], &w, 1);
+		}
+
+        	kill(getpid(), SIGINT);
+		printf("[error] unable to kill child process\n");
+		return;
+	} else {
+		printf("[error] failed to fork.\n");
+	}
+
+	retval = sched_setaffinity(getpid(), sizeof(cpuset), &cpuset);
+	if (retval == -1)
+		printf("[error] failed to restore affinity.\n");
+	retval = setpriority(PRIO_PROCESS, 0, prio);
+	if (retval == -1)
+		printf("[error] failed to restore priority.\n");
+
+	struct timespec diff;
+	for (int i = 0; i < iter; i++)
+	{
+		calc_diff(&diff, &runs[i].end, &runs[i].start);
+		fprintf(fp, "%d,%ld.%09ld\n", i, diff.tv_sec, diff.tv_nsec);
+	}
+	fflush(fp);
+
+	munmap(runs, sizeof(struct Record) * iter);
+}
 //---------------------------------------------------------------------
 
 #ifdef BYPASS
@@ -1265,6 +1376,17 @@ int main(void)
 	printf("Running select test large\n");
 	fflush(stdout);
 	select_bench(1000, LOOP);
+
+	fclose(fp);
+#endif
+
+#ifdef CTX_SW_TEST
+	fp = fopen("./new_lebench_context_switch.csv", "w");
+	fprintf(fp, "Index,Latency\n");
+
+	printf("Running context switch test\n");
+	fflush(stdout);
+	context_switch_bench();
 
 	fclose(fp);
 #endif
