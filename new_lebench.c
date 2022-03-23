@@ -129,91 +129,123 @@ void calc_average(struct timespec *average, struct timespec *sum, int size)
 
 void getppid_bench(void)
 {
-	struct timespec startTime = {0, 0}, endTime = {0, 0};
-	struct timespec diffTime = {0, 0}, aveTime = {0, 0};
+	struct timespec diff = {0, 0};
 	int l;
 	int loop = 100000;
+	struct Record *runs;
 
+	runs = mmap(NULL, sizeof(struct Record) * loop, PROT_READ | PROT_WRITE,
+				MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+
+	memset(runs, 0, sizeof(struct Record) * loop);
 	for (l = 0; l < loop; l++)
 	{
-		clock_gettime(CLOCK_MONOTONIC, &startTime);
+		clock_gettime(CLOCK_MONOTONIC, &runs[l].start);
 #ifdef BYPASS
 		bp_getppid();
 #else
 		syscall(SYS_getppid);
 #endif
-		clock_gettime(CLOCK_MONOTONIC, &endTime);
-
-		calc_diff(&diffTime, &endTime, &startTime);
-		fprintf(fp, "%d,%ld.%09ld\n", l, diffTime.tv_sec, diffTime.tv_nsec);
-		fflush(fp);
+		clock_gettime(CLOCK_MONOTONIC, &runs[l].end);
 	}
 
+	for (l = 0; l < loop; l++)
+	{
+		calc_diff(&diff, &runs[l].end, &runs[l].start);
+		fprintf(fp, "%d,%ld.%09ld\n", l, diff.tv_sec, diff.tv_nsec);
+	}
+	fflush(fp);
+
+	munmap(runs, sizeof(struct Record) * loop);
 	return;
 }
 
 void clock_bench(void)
 {
-	struct timespec startTime = {0, 0}, endTime = {0, 0};
-	struct timespec diffTime = {0, 0}, aveTime = {0, 0};
+	struct timespec diff = {0, 0};
 	int l;
 	int loop = 100000;
+	struct Record *runs;
+
+	runs = mmap(NULL, sizeof(struct Record) * loop, PROT_READ | PROT_WRITE,
+				MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+
+	memset(runs, 0, sizeof(struct Record) * loop);
+	for (l = 0; l < loop; l++)
+	{
+		clock_gettime(CLOCK_MONOTONIC, &runs[l].start);
+		clock_gettime(CLOCK_MONOTONIC, &runs[l].end);
+	}
 
 	for (l = 0; l < loop; l++)
 	{
-		clock_gettime(CLOCK_MONOTONIC, &startTime);
-		clock_gettime(CLOCK_MONOTONIC, &endTime);
-
-		calc_diff(&diffTime, &endTime, &startTime);
-		fprintf(fp, "%d,%ld.%09ld\n", l, diffTime.tv_sec, diffTime.tv_nsec);
-		fflush(fp);
+		calc_diff(&diff, &runs[l].end, &runs[l].start);
+		fprintf(fp, "%d,%ld.%09ld\n", l, diff.tv_sec, diff.tv_nsec);
 	}
+	fflush(fp);
+
+	munmap(runs, sizeof(struct Record) * loop);
+
 	return;
 }
 
 void cpu_bench(void)
 {
-	struct timespec startTime = {0, 0}, endTime = {0, 0};
-	struct timespec diffTime = {0, 0}, aveTime = {0, 0};
+	struct timespec diff = {0, 0};
 	int i, l;
 	double start;
 	double div;
 	int loop = 1000;
+	struct Record *runs;
 
+	runs = mmap(NULL, sizeof(struct Record) * loop, PROT_READ | PROT_WRITE,
+				MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+
+	memset(runs, 0, sizeof(struct Record) * loop);
 	for (l = 0; l < loop; l++)
 	{
 		start = 9903290.789798798;
 		div = 3232.32;
 
-		clock_gettime(CLOCK_MONOTONIC, &startTime);
+		clock_gettime(CLOCK_MONOTONIC, &runs[l].start);
 		for (i = 0; i < 500000; i++)
 		{
 			start = start / div;
 		}
-		clock_gettime(CLOCK_MONOTONIC, &endTime);
-
-		calc_diff(&diffTime, &endTime, &startTime);
-		fprintf(fp, "%d,%ld.%09ld\n", l, diffTime.tv_sec, diffTime.tv_nsec);
-		fflush(fp);
+		clock_gettime(CLOCK_MONOTONIC, &runs[l].end);
 	}
+
+	for (l = 0; l < loop; l++)
+	{
+		calc_diff(&diff, &runs[l].end, &runs[l].start);
+		fprintf(fp, "%d,%ld.%09ld\n", l, diff.tv_sec, diff.tv_nsec);
+	}
+	fflush(fp);
+
+	munmap(runs, sizeof(struct Record) * loop);
 	return;
 }
 
 void write_bench(int file_size)
 {
-	struct timespec startTime = {0, 0}, endTime = {0, 0};
-	struct timespec diffTime = {0, 0}, aveTime = {0, 0};
+	struct timespec diff = {0, 0};
 	char *buf;
 	int fd, i, l;
+	struct Record *runs;
 
 #if defined(USE_VMALLOC)
 	buf = (char *)vmalloc(sizeof(char) * file_size);
+	runs = (struct Record*)vmalloc(sizeof(struct Record) * LOOP * 10);
 #elif defined(USE_MALLOC)
 	buf = (char *)malloc(sizeof(char) * file_size);
+	runs = (struct Record*)malloc(sizeof(struct Record) * LOOP * 10);
 #else
 	buf = (char *)syscall(SYS_mmap, (void *)ADDR_HINT, sizeof(char) * file_size,
 						  PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+	runs = (struct Record*)mmap(NULL, sizeof(struct Record) * LOOP * 10, PROT_READ | PROT_WRITE,
+				MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
 #endif
+
 	for (i = 0; i < file_size; i++)
 	{
 		buf[i] = i % 93 + 33;
@@ -225,28 +257,36 @@ void write_bench(int file_size)
 		exit(0);
 	}
 
+	memset(runs, 0, sizeof(struct Record) * LOOP * 10);
 	for (l = 0; l < LOOP * 10; l++)
 	{
-		clock_gettime(CLOCK_MONOTONIC, &startTime);
+		clock_gettime(CLOCK_MONOTONIC, &runs[l].start);
 #ifdef BYPASS
 		bp_write(fd, buf, file_size);
 #else
 		syscall(SYS_write, fd, buf, file_size);
 #endif
-		clock_gettime(CLOCK_MONOTONIC, &endTime);
-		calc_diff(&diffTime, &endTime, &startTime);
-		fprintf(fp, "%d,%d,%ld.%09ld\n", l, file_size, diffTime.tv_sec, diffTime.tv_nsec);
-		fflush(fp);
+		clock_gettime(CLOCK_MONOTONIC, &runs[l].end);
 	}
 
 	close(fd);
 
+	for (l = 0; l < LOOP * 10; l++)
+	{
+		calc_diff(&diff, &runs[l].end, &runs[l].start);
+		fprintf(fp, "%d,%d,%ld.%09ld\n", l, file_size, diff.tv_sec, diff.tv_nsec);
+	}
+	fflush(fp);
+
 #if defined(USE_VMALLOC)
 	vfree(buf);
+	vfree(runs);
 #elif defined(USE_MALLOC)
 	free(buf);
+	free(runs);
 #else
 	syscall(SYS_munmap, buf, file_size);
+	munmap(runs, sizeof(struct Record) * LOOP * 10);
 #endif
 
 	return;
@@ -254,18 +294,22 @@ void write_bench(int file_size)
 
 void read_bench(int file_size)
 {
-	struct timespec startTime = {0, 0}, endTime = {0, 0};
-	struct timespec diffTime = {0, 0}, aveTime = {0, 0};
+	struct timespec diff = {0, 0};
 	char *buf;
 	int fd, l, i;
+	struct Record *runs;
 
 #if defined(USE_VMALLOC)
 	buf = (char *)vmalloc(sizeof(char) * file_size);
+	runs = (struct Record*)vmalloc(sizeof(struct Record) * LOOP * 10);
 #elif defined(USE_MALLOC)
 	buf = (char *)malloc(sizeof(char) * file_size);
+	runs = (struct Record*)malloc(sizeof(struct Record) * LOOP * 10);
 #else
 	buf = (char *)syscall(SYS_mmap, (void *)ADDR_HINT, sizeof(char) * file_size,
 						  PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+	runs = (struct Record*)mmap(NULL, sizeof(struct Record) * LOOP * 10, PROT_READ | PROT_WRITE,
+				MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
 #endif
 	for (i = 0; i < file_size; i++)
 	{
@@ -278,28 +322,36 @@ void read_bench(int file_size)
 		exit(0);
 	}
 
+	memset(runs, 0, sizeof(struct Record) * LOOP * 10);
 	for (l = 0; l < LOOP * 10; l++)
 	{
-		clock_gettime(CLOCK_MONOTONIC, &startTime);
+		clock_gettime(CLOCK_MONOTONIC, &runs[l].start);
 #ifdef BYPASS
 		bp_read(fd, buf, file_size);
 #else
 		syscall(SYS_read, fd, buf, file_size);
 #endif
-		clock_gettime(CLOCK_MONOTONIC, &endTime);
-		calc_diff(&diffTime, &endTime, &startTime);
-		fprintf(fp, "%d,%d,%ld.%09ld\n", l, file_size, diffTime.tv_sec, diffTime.tv_nsec);
-		fflush(fp);
+		clock_gettime(CLOCK_MONOTONIC, &runs[l].end);
 	}
 
 	close(fd);
 
+	for (l = 0; l < LOOP * 10; l++)
+	{
+		calc_diff(&diff, &runs[l].end, &runs[l].start);
+		fprintf(fp, "%d,%d,%ld.%09ld\n", l, file_size, diff.tv_sec, diff.tv_nsec);
+	}
+	fflush(fp);
+
 #if defined(USE_VMALLOC)
 	vfree(buf);
+	vfree(runs);
 #elif defined(USE_MALLOC)
 	free(buf);
+	free(runs);
 #else
 	syscall(SYS_munmap, buf, file_size);
+	munmap(runs, sizeof(struct Record) * LOOP * 10);
 #endif
 
 	return;
@@ -308,8 +360,7 @@ void read_bench(int file_size)
 #define sock "./my_sock"
 void send_bench(int msg_size)
 {
-	struct timespec startTime = {0, 0}, endTime = {0, 0};
-	struct timespec diffTime = {0, 0}, aveTime = {0, 0};
+	struct timespec diff = {0, 0};
 
 	// need to set affinity of parent and child to different cpus
 	int retval, forkId, status, l;
@@ -317,12 +368,7 @@ void send_bench(int msg_size)
 	char w = 'b', r;
 	char *buf;
 	struct sockaddr_un server_addr;
-
-	int recvbuff, retsock, sendbuff, newbuff;
-	socklen_t optlen = sizeof(recvbuff);
-
-	cpu_set_t cpuset;
-	int prio;
+	struct Record *runs;
 
 	memset(&server_addr, 0, sizeof(struct sockaddr_un));
 	server_addr.sun_family = AF_UNIX;
@@ -332,11 +378,15 @@ void send_bench(int msg_size)
 	// create a buffer (this needs to be mmap)
 #if defined(USE_VMALLOC)
 	buf = (char *)vmalloc(sizeof(char) * msg_size);
+	runs = (struct Record *)vmalloc(sizeof(struct Record) * LOOP);
 #elif defined(USE_MALLOC)
 	buf = (char *)malloc(sizeof(char) * msg_size);
+	runs = (struct Record *)malloc(sizeof(struct Record) * LOOP);
 #else
 	buf = (char *)syscall(SYS_mmap, (void *)ADDR_HINT, sizeof(char) * msg_size,
 						  PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+	runs = (struct Record *)mmap(NULL, sizeof(struct Record) * LOOP, PROT_READ | PROT_WRITE,
+								MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
 #endif
 
 	// write character 'a' in the buffer
@@ -344,6 +394,8 @@ void send_bench(int msg_size)
 	{
 		buf[i] = 'a';
 	}
+
+	memset(runs, 0, sizeof(struct Record) * LOOP);
 
 	for (l = 0; l < LOOP; l++)
 	{
@@ -426,22 +478,18 @@ void send_bench(int msg_size)
 			retval = send(fd_client, buf, msg_size, MSG_DONTWAIT);
 
 			// send buffer over to child and measure latency
-			clock_gettime(CLOCK_MONOTONIC, &startTime);
+			clock_gettime(CLOCK_MONOTONIC, &runs[l].start);
 #ifdef BYPASS
 			retval = bp_sendto(fd_client, buf, msg_size, MSG_DONTWAIT, NULL, 0);
 #else
 			retval = syscall(SYS_sendto, fd_client, buf, msg_size, MSG_DONTWAIT, NULL, 0);
 #endif
-			clock_gettime(CLOCK_MONOTONIC, &endTime);
+			clock_gettime(CLOCK_MONOTONIC, &runs[l].end);
 
 			if (retval == -1)
 			{
 				printf("[error %d] failed to send. %s\n", errno, strerror(errno));
 			}
-
-			calc_diff(&diffTime, &endTime, &startTime);
-			fprintf(fp, "%d,%d,%ld.%09ld\n", l, msg_size, diffTime.tv_sec, diffTime.tv_nsec);
-			fflush(fp);
 
 			// update child so clean-up can happen
 			write(fds2[1], &w, 1);
@@ -455,12 +503,22 @@ void send_bench(int msg_size)
 		}
 	}
 
+	for (l = 0; l < LOOP; l++)
+	{
+		calc_diff(&diff, &runs[l].end, &runs[l].start);
+		fprintf(fp, "%d,%d,%ld.%09ld\n", l, msg_size, diff.tv_sec, diff.tv_nsec);
+	}
+	fflush(fp);
+
 #if defined(USE_VMALLOC)
 	vfree(buf);
+	vfree(runs);
 #elif defined(USE_MALLOC)
 	free(buf);
+	free(runs);
 #else
 	syscall(SYS_munmap, buf, msg_size);
+	munmap(runs, sizeof(struct Record) * LOOP);
 #endif
 
 	return;
@@ -468,8 +526,7 @@ void send_bench(int msg_size)
 
 void recv_bench(int msg_size)
 {
-	struct timespec startTime = {0, 0}, endTime = {0, 0};
-	struct timespec diffTime = {0, 0}, aveTime = {0, 0};
+	struct timespec diff = {0, 0};
 
 	// need to set affinity of parent and child to different cpus
 	int retval, forkId, status, l;
@@ -477,12 +534,7 @@ void recv_bench(int msg_size)
 	char w = 'b', r;
 	char *buf;
 	struct sockaddr_un server_addr;
-
-	int recvbuff, retsock, sendbuff, newbuff;
-	socklen_t optlen = sizeof(recvbuff);
-
-	cpu_set_t cpuset;
-	int prio;
+	struct Record *runs;
 
 	if (DEBUG)
 		printf("recv_bench(%d)\n", msg_size);
@@ -495,12 +547,18 @@ void recv_bench(int msg_size)
 	// create a buffer (this needs to be mmap)
 #if defined(USE_VMALLOC)
 	buf = (char *)vmalloc(sizeof(char) * msg_size);
+	runs = (struct Record *)vmalloc(sizeof(struct Record) * LOOP);
 #elif defined(USE_MALLOC)
 	buf = (char *)malloc(sizeof(char) * msg_size);
+	runs = (struct Record *)malloc(sizeof(struct Record) * LOOP);
 #else
 	buf = (char *)syscall(SYS_mmap, (void *)ADDR_HINT, sizeof(char) * msg_size,
 						  PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+	runs = (struct Record *)mmap(NULL, sizeof(struct Record) * LOOP, PROT_READ | PROT_WRITE,
+								MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
 #endif
+
+	memset(runs, 0, sizeof(struct Record) * LOOP);
 
 	for (l = 0; l < LOOP; l++)
 	{
@@ -555,22 +613,18 @@ void recv_bench(int msg_size)
 			retval = recv(fd_connect, buf, msg_size, MSG_DONTWAIT);
 
 			// recv data from child and measure latency
-			clock_gettime(CLOCK_MONOTONIC, &startTime);
+			clock_gettime(CLOCK_MONOTONIC, &runs[l].start);
 #ifdef BYPASS
 			retval = bp_recvfrom(fd_connect, buf, msg_size, MSG_DONTWAIT, NULL, NULL);
 #else
 			retval = syscall(SYS_recvfrom, fd_connect, buf, msg_size, MSG_DONTWAIT, NULL, NULL);
 #endif
-			clock_gettime(CLOCK_MONOTONIC, &endTime);
+			clock_gettime(CLOCK_MONOTONIC, &runs[l].end);
 
 			if (retval == -1)
 			{
 				printf("[error %d] failed to send. %s\n", errno, strerror(errno));
 			}
-
-			calc_diff(&diffTime, &endTime, &startTime);
-			fprintf(fp, "%d,%d,%ld.%09ld\n", l, msg_size, diffTime.tv_sec, diffTime.tv_nsec);
-			fflush(fp);
 
 			// update child so clean-up can happen
 			write(fds1[1], &w, 1);
@@ -635,12 +689,22 @@ void recv_bench(int msg_size)
 		}
 	}
 
+	for (l = 0; l < LOOP; l++)
+	{
+		calc_diff(&diff, &runs[l].end, &runs[l].start);
+		fprintf(fp, "%d,%d,%ld.%09ld\n", l, msg_size, diff.tv_sec, diff.tv_nsec);
+	}
+	fflush(fp);
+
 #if defined(USE_VMALLOC)
 	vfree(buf);
+	vfree(runs);
 #elif defined(USE_MALLOC)
 	free(buf);
+	free(runs);
 #else
 	syscall(SYS_munmap, buf, msg_size);
+	munmap(runs, sizeof(struct Record) * LOOP);
 #endif
 
 	return;
@@ -650,23 +714,35 @@ struct timespec *forkTime;
 
 void fork_bench(void)
 {
-	struct timespec startTime = {0, 0}, endTime = {0, 0};
-	struct timespec diffTime = {0, 0}, aveTime = {0, 0};
-	forkTime = mmap(NULL, sizeof(struct timespec), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
+	struct timespec diff = {0, 0}, ave= {0, 0};
+	forkTime = mmap(NULL, sizeof(struct timespec) * LOOP, PROT_READ | PROT_WRITE,
+					MAP_SHARED | MAP_ANONYMOUS, -1, 0);
 	int forkId, l, status;
+	struct Record *runs;
 
+#if defined(USE_VMALLOC)
+	runs = (struct Record *)vmalloc(sizeof(struct Record) * LOOP);
+#elif defined(USE_MALLOC)
+	runs = (struct Record *)malloc(sizeof(struct Record) * LOOP);
+#else
+	runs = (struct Record *)mmap(NULL, sizeof(struct Record) * LOOP, PROT_READ | PROT_WRITE,
+								MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+#endif
+
+	memset(runs, 0, sizeof(struct Record) * LOOP);
+	memset(forkTime, 0, sizeof(struct timespec) * LOOP);
 	for (l = 0; l < LOOP; l++)
 	{
-		clock_gettime(CLOCK_MONOTONIC, &startTime);
+		clock_gettime(CLOCK_MONOTONIC, &runs[l].start);
 		forkId = fork();
 		if (forkId == 0)
 		{
-			clock_gettime(CLOCK_MONOTONIC, forkTime);
+			clock_gettime(CLOCK_MONOTONIC, &forkTime[l]);
 			exit(0);
 		}
 		else if (forkId > 0)
 		{
-			clock_gettime(CLOCK_MONOTONIC, &endTime);
+			clock_gettime(CLOCK_MONOTONIC, &runs[l].end);
 			wait(&status);
 		}
 		else
@@ -674,132 +750,186 @@ void fork_bench(void)
 			printf("[error] fork failed.\n");
 			fflush(stdout);
 		}
-		calc_diff(&diffTime, &endTime, &startTime);
-		calc_diff(&aveTime, forkTime, &startTime);
-		fprintf(fp, "%d,%ld.%09ld,%ld.%09ld\n", l, diffTime.tv_sec, diffTime.tv_nsec, aveTime.tv_sec, aveTime.tv_nsec);
-		fflush(fp);
 	}
 
+	for (l = 0; l < LOOP; l++)
+	{
+		calc_diff(&diff, &runs[l].end, &runs[l].start);
+		calc_diff(&ave, forkTime, &runs[l].start);
+		fprintf(fp, "%d,%ld.%09ld,%ld.%09ld\n", l, diff.tv_sec, diff.tv_nsec, ave.tv_sec, ave.tv_nsec);
+	}
+	fflush(fp);
+
 	munmap(forkTime, sizeof(struct timespec));
+
+#if defined(USE_VMALLOC)
+	vfree(runs);
+#elif defined(USE_MALLOC)
+	free(runs);
+#else
+	munmap(runs, sizeof(struct Record) * LOOP);
+#endif
+
 	return;
 }
 
-struct timespec *threadTime;
-
 void *thrdfnc(void *args)
 {
-	clock_gettime(CLOCK_MONOTONIC, threadTime);
+	clock_gettime(CLOCK_MONOTONIC, (struct timespec*)args);
 	pthread_exit(0);
 }
 
 void thread_bench(void)
 {
-	struct timespec startTime = {0, 0}, endTime = {0, 0};
-	struct timespec diffTime = {0, 0}, aveTime = {0, 0};
-	int l, retval;
+	struct timespec diff = {0, 0}, ave= {0, 0};
+	int l;
 	pthread_t newThrd;
+	struct timespec *threads;
+	struct Record *runs;
 
-	threadTime = (struct timespec *)malloc(sizeof(struct timespec));
+#if defined(USE_VMALLOC)
+	runs = (struct Record *)vmalloc(sizeof(struct Record) * LOOP);
+	threads = (struct timespec *)vmalloc(sizeof(struct timespec) * LOOP);
+#elif defined(USE_MALLOC)
+	runs = (struct Record *)malloc(sizeof(struct Record) * LOOP);
+	threads = (struct timespec *)malloc(sizeof(struct timespec) * LOOP);
+#else
+	runs = (struct Record *)mmap(NULL, sizeof(struct Record) * LOOP, PROT_READ | PROT_WRITE,
+								MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+	threads = (struct timespec *)mmap(NULL, sizeof(struct timespec) * LOOP, PROT_READ | PROT_WRITE,
+								MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+#endif
+
+	memset(runs, 0, sizeof(struct Record) * LOOP);
+	memset(threads, 0, sizeof(struct timespec) * LOOP);
+	for (l = 0; l < LOOP; l++)
+	{
+		clock_gettime(CLOCK_MONOTONIC, &runs[l].start);
+		pthread_create(&newThrd, NULL, thrdfnc, &threads[l]);
+		clock_gettime(CLOCK_MONOTONIC, &runs[l].end);
+
+		pthread_join(newThrd, NULL);
+	}
 
 	for (l = 0; l < LOOP; l++)
 	{
-		clock_gettime(CLOCK_MONOTONIC, &startTime);
-		retval = pthread_create(&newThrd, NULL, thrdfnc, NULL);
-		clock_gettime(CLOCK_MONOTONIC, &endTime);
-
-		pthread_join(newThrd, NULL);
-
-		calc_diff(&diffTime, &endTime, &startTime);
-		calc_diff(&aveTime, threadTime, &startTime);
-		fprintf(fp, "%d,%ld.%09ld,%ld.%09ld\n", l, diffTime.tv_sec, diffTime.tv_nsec, aveTime.tv_sec, aveTime.tv_nsec);
-		fflush(fp);
+		calc_diff(&diff, &runs[l].end, &runs[l].start);
+		calc_diff(&ave, &threads[l], &runs[l].start);
+		fprintf(fp, "%d,%ld.%09ld,%ld.%09ld\n", l, diff.tv_sec, diff.tv_nsec, ave.tv_sec, ave.tv_nsec);
 	}
+	fflush(fp);
 
-	free(threadTime);
+#if defined(USE_VMALLOC)
+	vfree(runs);
+	vfree(threads);
+#elif defined(USE_MALLOC)
+	free(runs);
+	free(threads);
+#else
+	munmap(runs, sizeof(struct Record) * LOOP);
+	munmap(threads, sizeof(struct timespec) * LOOP);
+#endif
+
 	return;
 }
 
 void pagefault_bench(int file_size)
 {
-	struct timespec startTime = {0, 0}, endTime = {0, 0};
-	struct timespec diffTime = {0, 0}, aveTime = {0, 0};
-	char *buf;
-	int fd, l, i;
-	FILE *fp2;
+	struct timespec diff = {0, 0};
+	struct Record *runs;
+	int l, i;
 	char *addr;
-	char a[file_size];
 
+#if defined(USE_VMALLOC)
+	runs = (struct Record *)vmalloc(sizeof(struct Record) * LOOP);
+#elif defined(USE_MALLOC)
+	runs = (struct Record *)malloc(sizeof(struct Record) * LOOP);
+#else
+	runs = (struct Record *)mmap(NULL, sizeof(struct Record) * LOOP, PROT_READ | PROT_WRITE,
+								MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+#endif
+
+	memset(runs, 0, sizeof(struct Record) * LOOP);
 	for (l = 0; l < LOOP; l++)
 	{
-		fd = open("tmp_file.txt", O_CREAT | O_WRONLY, S_IRUSR | S_IWUSR);
-		if (fd < 0)
-		{
-			perror("invalid fd in write\n");
-			exit(0);
-		}
-
-		addr = (char *)syscall(SYS_mmap, (void *)ADDR_HINT, file_size, PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-		clock_gettime(CLOCK_MONOTONIC, &startTime);
+		addr = (char *)mmap((void *)ADDR_HINT, file_size, PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
 		i = 0;
+		clock_gettime(CLOCK_MONOTONIC, &runs[l].start);
 		while (i < file_size)
 		{
 			addr[i] = i % 93 + 33;
 			i = i + 4096;
-			// i++;
 		}
-		clock_gettime(CLOCK_MONOTONIC, &endTime);
+		clock_gettime(CLOCK_MONOTONIC, &runs[l].end);
 
-		syscall(SYS_write, fd, addr, file_size);
+		munmap(addr, file_size);
 
-		close(fd);
-
-		syscall(SYS_munmap, addr, file_size);
-
-		calc_diff(&diffTime, &endTime, &startTime);
-		fprintf(fp, "%d,%d,%ld.%09ld\n", l, file_size, diffTime.tv_sec, diffTime.tv_nsec);
-		fflush(fp);
 	}
+
+	for (l = 0; l < LOOP; l++)
+	{
+		calc_diff(&diff, &runs[l].end, &runs[l].start);
+		fprintf(fp, "%d,%d,%ld.%09ld\n", l, file_size, diff.tv_sec, diff.tv_nsec);
+
+	}
+	fflush(fp);
+
+#if defined(USE_VMALLOC)
+	vfree(runs);
+#elif defined(USE_MALLOC)
+	free(runs);
+#else
+	munmap(runs, sizeof(struct Record) * LOOP);
+#endif
+
 	return;
 }
 
 void stack_pagefault_bench(int file_size)
 {
-	struct timespec startTime = {0, 0}, endTime = {0, 0};
-	struct timespec diffTime = {0, 0}, aveTime = {0, 0};
-	char *buf;
-	int fd, l, i;
-	FILE *fp2;
+	int l, i;
 	char *addr;
-	char a[file_size];
+	struct Record *runs;
 
+#if defined(USE_VMALLOC)
+	runs = (struct Record *)vmalloc(sizeof(struct Record) * LOOP);
+#elif defined(USE_MALLOC)
+	runs = (struct Record *)malloc(sizeof(struct Record) * LOOP);
+#else
+	runs = (struct Record *)mmap(NULL, sizeof(struct Record) * LOOP, PROT_READ | PROT_WRITE,
+								MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+#endif
+
+	memset(runs, 0, sizeof(struct Record) * LOOP);
 	for (l = 0; l < LOOP; l++)
 	{
-		fd = open("tmp_file.txt", O_CREAT | O_WRONLY);
-		if (fd < 0)
-		{
-			printf("invalid fd in write: %d\n", fd);
-			exit(0);
-		}
-
 		addr = (char *)alloca(file_size * sizeof(long));
-
-		clock_gettime(CLOCK_MONOTONIC, &startTime);
+		clock_gettime(CLOCK_MONOTONIC, &runs[l].start);
 		i = 0;
 		while (i < file_size)
 		{
 			addr[i] = i % 93 + 33;
 			i = i + 4096;
 		}
-		clock_gettime(CLOCK_MONOTONIC, &endTime);
-
-		syscall(SYS_write, fd, addr, file_size);
-
-		close(fd);
-
-		calc_diff(&diffTime, &endTime, &startTime);
-		fprintf(fp, "%d,%d,%ld.%09ld\n", l, file_size, diffTime.tv_sec, diffTime.tv_nsec);
-		fflush(fp);
+		clock_gettime(CLOCK_MONOTONIC, &runs[l].end);
 	}
+
+	for (l = 0; l < LOOP; l++)
+	{
+		struct timespec diff;
+		calc_diff(&diff, &runs[l].end, &runs[l].start);
+		fprintf(fp, "%d,%d,%ld.%09ld\n", l, file_size, diff.tv_sec, diff.tv_nsec);
+	}
+	fflush(fp);
+
+#if defined(USE_VMALLOC)
+	vfree(runs);
+#elif defined(USE_MALLOC)
+	free(runs);
+#else
+	munmap(runs, sizeof(struct Record) * LOOP);
+#endif
+
 	return;
 }
 
@@ -882,9 +1012,8 @@ extern void set_bypass_syscall(int val);
 
 int main(void)
 {
-	int file_size, pf_size, fd_count, retval;
+	int file_size, pf_size, retval;
 	int i = 0, percentage = 0;
-	void *addr;
 
 	cpu_set_t set;
 	CPU_ZERO(&set);
