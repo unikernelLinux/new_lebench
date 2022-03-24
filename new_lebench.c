@@ -26,18 +26,25 @@
 #include <errno.h>
 
 #define MAX_SIZE 8192
-#define PF_MAX_SIZE 100*4096
+#define PF_MAX_SIZE 100 * 4096
 #define LOOP 1000
 #define STEP 256
 #define PF_STEP 4096
-#define CENT ((MAX_SIZE/STEP)/100)
-#define PF_CENT ((PF_MAX_SIZE/PF_STEP)/100)
+#define CENT ((MAX_SIZE / STEP) / 100)
+#define PF_CENT ((PF_MAX_SIZE / PF_STEP) / 100)
 
 #define ADDR_HINT 0x300000000000
 
 #define CPU1 14
 
 FILE *fp;
+
+struct Record
+{
+	size_t size;
+	struct timespec start;
+	struct timespec end;
+};
 
 //---------------------------------------------------------------------
 #ifdef USE_VMALLOC
@@ -67,35 +74,37 @@ extern ssize_t bp_recvfrom(int socket, void *restrict buffer, size_t length, int
 
 void calc_diff(struct timespec *diff, struct timespec *bigger, struct timespec *smaller)
 {
-        if (smaller->tv_nsec > bigger->tv_nsec)
-        {
-                diff->tv_nsec = 1000000000 + bigger->tv_nsec - smaller->tv_nsec;
-                diff->tv_sec = bigger->tv_sec - 1 - smaller->tv_sec;
-        }
-        else
-        {
-                diff->tv_nsec = bigger->tv_nsec - smaller->tv_nsec;
-                diff->tv_sec = bigger->tv_sec - smaller->tv_sec;
-        }
+	if (smaller->tv_nsec > bigger->tv_nsec)
+	{
+		diff->tv_nsec = 1000000000 + bigger->tv_nsec - smaller->tv_nsec;
+		diff->tv_sec = bigger->tv_sec - 1 - smaller->tv_sec;
+	}
+	else
+	{
+		diff->tv_nsec = bigger->tv_nsec - smaller->tv_nsec;
+		diff->tv_sec = bigger->tv_sec - smaller->tv_sec;
+	}
 }
 
 void calc_sum(struct timespec *sum, struct timespec *bigger, struct timespec *smaller)
 {
-        sum->tv_sec = 0;
-        sum->tv_nsec = 0;
-        if (smaller->tv_nsec >= (1000000000 - bigger->tv_nsec))
-        {
-                bigger->tv_sec = bigger->tv_sec +1;
-                sum->tv_nsec = smaller->tv_nsec - (1000000000 - bigger->tv_nsec);
-                sum->tv_sec = bigger->tv_sec + smaller->tv_sec;
-        } else {
+	sum->tv_sec = 0;
+	sum->tv_nsec = 0;
+	if (smaller->tv_nsec >= (1000000000 - bigger->tv_nsec))
+	{
+		bigger->tv_sec = bigger->tv_sec + 1;
+		sum->tv_nsec = smaller->tv_nsec - (1000000000 - bigger->tv_nsec);
+		sum->tv_sec = bigger->tv_sec + smaller->tv_sec;
+	}
+	else
+	{
 
-                sum->tv_nsec = bigger->tv_nsec + smaller->tv_nsec;
-                sum->tv_sec = bigger->tv_sec + smaller->tv_sec;
-        }
+		sum->tv_nsec = bigger->tv_nsec + smaller->tv_nsec;
+		sum->tv_sec = bigger->tv_sec + smaller->tv_sec;
+	}
 }
 
-void add_diff_to_sum(struct timespec *result, struct timespec* a, struct timespec *b)
+void add_diff_to_sum(struct timespec *result, struct timespec *a, struct timespec *b)
 {
 	struct timespec diff;
 	struct timespec tmp;
@@ -107,623 +116,1004 @@ void add_diff_to_sum(struct timespec *result, struct timespec* a, struct timespe
 
 void calc_average(struct timespec *average, struct timespec *sum, int size)
 {
-        average->tv_sec = 0;
-        average->tv_nsec = 0;
-        if (size == 0) return;
+	average->tv_sec = 0;
+	average->tv_nsec = 0;
+	if (size == 0)
+		return;
 
-        average->tv_nsec = sum->tv_nsec / size + sum->tv_sec % size * 1000000000 / size;
-        average->tv_sec = sum->tv_sec / size;
+	average->tv_nsec = sum->tv_nsec / size + sum->tv_sec % size * 1000000000 / size;
+	average->tv_sec = sum->tv_sec / size;
 }
 
 //---------------------------------------------------------------------
 
-void getppid_bench(void){
-	struct timespec startTime = { 0, 0 }, endTime = { 0, 0 };
-	struct timespec diffTime = { 0, 0 }, aveTime = { 0, 0 };
+void getppid_bench(void)
+{
+	struct timespec diff = {0, 0};
 	int l;
 	int loop = 100000;
+	struct Record *runs;
 
-	for(l = 0; l < loop; l++){
-		clock_gettime(CLOCK_MONOTONIC, &startTime);
+	runs = mmap(NULL, sizeof(struct Record) * loop, PROT_READ | PROT_WRITE,
+				MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+
+	memset(runs, 0, sizeof(struct Record) * loop);
+	for (l = 0; l < loop; l++)
+	{
+		clock_gettime(CLOCK_MONOTONIC, &runs[l].start);
 #ifdef BYPASS
 		bp_getppid();
 #else
-	        syscall(SYS_getppid);
+		syscall(SYS_getppid);
 #endif
-		clock_gettime(CLOCK_MONOTONIC,&endTime);	
-	
-		calc_diff(&diffTime, &endTime, &startTime);
-		fprintf(fp, "%d,%ld.%09ld\n", l, diffTime.tv_sec, diffTime.tv_nsec);
-		fflush(fp);
+		clock_gettime(CLOCK_MONOTONIC, &runs[l].end);
 	}
-        
+
+	for (l = 0; l < loop; l++)
+	{
+		calc_diff(&diff, &runs[l].end, &runs[l].start);
+		fprintf(fp, "%d,%ld.%09ld\n", l, diff.tv_sec, diff.tv_nsec);
+	}
+	fflush(fp);
+
+	munmap(runs, sizeof(struct Record) * loop);
 	return;
 }
 
-void clock_bench(void){
-	struct timespec startTime = { 0, 0 }, endTime = { 0, 0 };
-	struct timespec diffTime = { 0, 0 }, aveTime = { 0, 0 };
+void clock_bench(void)
+{
+	struct timespec diff = {0, 0};
 	int l;
 	int loop = 100000;
+	struct Record *runs;
 
-	for(l = 0; l < loop; l++){
-	        clock_gettime(CLOCK_MONOTONIC, &startTime);
-	        clock_gettime(CLOCK_MONOTONIC,&endTime);
-		
-		calc_diff(&diffTime, &endTime, &startTime);
-		fprintf(fp, "%d,%ld.%09ld\n", l, diffTime.tv_sec, diffTime.tv_nsec);
-		fflush(fp);
+	runs = mmap(NULL, sizeof(struct Record) * loop, PROT_READ | PROT_WRITE,
+				MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+
+	memset(runs, 0, sizeof(struct Record) * loop);
+	for (l = 0; l < loop; l++)
+	{
+		clock_gettime(CLOCK_MONOTONIC, &runs[l].start);
+		clock_gettime(CLOCK_MONOTONIC, &runs[l].end);
 	}
-        return;
+
+	for (l = 0; l < loop; l++)
+	{
+		calc_diff(&diff, &runs[l].end, &runs[l].start);
+		fprintf(fp, "%d,%ld.%09ld\n", l, diff.tv_sec, diff.tv_nsec);
+	}
+	fflush(fp);
+
+	munmap(runs, sizeof(struct Record) * loop);
+
+	return;
 }
 
-void cpu_bench(void){
-	struct timespec startTime = { 0, 0 }, endTime = { 0, 0 };
-	struct timespec diffTime = { 0, 0 }, aveTime = { 0, 0 };
+void cpu_bench(void)
+{
+	struct timespec diff = {0, 0};
 	int i, l;
 	double start;
-        double div;
+	double div;
 	int loop = 1000;
+	struct Record *runs;
 
-	for(l = 0; l < loop; l++){
+	runs = mmap(NULL, sizeof(struct Record) * loop, PROT_READ | PROT_WRITE,
+				MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+
+	memset(runs, 0, sizeof(struct Record) * loop);
+	for (l = 0; l < loop; l++)
+	{
 		start = 9903290.789798798;
-	        div = 3232.32;
+		div = 3232.32;
 
-	        clock_gettime(CLOCK_MONOTONIC, &startTime);
-		for (i = 0; i < 500000; i ++) {
-          		start = start / div;
-        	}
-	        clock_gettime(CLOCK_MONOTONIC,&endTime);
-		
-		calc_diff(&diffTime, &endTime, &startTime);
-		fprintf(fp, "%d,%ld.%09ld\n", l, diffTime.tv_sec, diffTime.tv_nsec);
-		fflush(fp);
+		clock_gettime(CLOCK_MONOTONIC, &runs[l].start);
+		for (i = 0; i < 500000; i++)
+		{
+			start = start / div;
+		}
+		clock_gettime(CLOCK_MONOTONIC, &runs[l].end);
 	}
-        return;
+
+	for (l = 0; l < loop; l++)
+	{
+		calc_diff(&diff, &runs[l].end, &runs[l].start);
+		fprintf(fp, "%d,%ld.%09ld\n", l, diff.tv_sec, diff.tv_nsec);
+	}
+	fflush(fp);
+
+	munmap(runs, sizeof(struct Record) * loop);
+	return;
 }
 
-void write_bench(int file_size){
-	struct timespec startTime = { 0, 0 }, endTime = { 0, 0 };
-	struct timespec diffTime = { 0, 0 }, aveTime = { 0, 0 };
-        char *buf; 
+void write_bench(int file_size)
+{
+	struct timespec diff = {0, 0};
+	char *buf;
 	int fd, i, l;
+	struct Record *runs;
 
 #if defined(USE_VMALLOC)
 	buf = (char *)vmalloc(sizeof(char) * file_size);
+	runs = (struct Record*)vmalloc(sizeof(struct Record) * LOOP * 10);
 #elif defined(USE_MALLOC)
 	buf = (char *)malloc(sizeof(char) * file_size);
+	runs = (struct Record*)malloc(sizeof(struct Record) * LOOP * 10);
 #else
-	buf = (char *)syscall(SYS_mmap, (void *) ADDR_HINT, sizeof(char) * file_size, \
-			PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+	buf = (char *)syscall(SYS_mmap, (void *)ADDR_HINT, sizeof(char) * file_size,
+						  PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+	runs = (struct Record*)mmap(NULL, sizeof(struct Record) * LOOP * 10, PROT_READ | PROT_WRITE,
+				MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
 #endif
-        for (i = 0; i < file_size; i++) {
-		buf[i] = i%93 + 33;
-        }
-        fd = open("test_file.txt", O_CREAT | O_WRONLY, S_IRUSR | S_IWUSR);
-        if (fd < 0){
-	       	printf("invalid fd in write: %d\n", fd);
+
+	for (i = 0; i < file_size; i++)
+	{
+		buf[i] = i % 93 + 33;
+	}
+	fd = open("test_file.txt", O_CREAT | O_WRONLY, S_IRUSR | S_IWUSR);
+	if (fd < 0)
+	{
+		printf("invalid fd in write: %d\n", fd);
 		exit(0);
 	}
-	
-	for(l = 0; l < LOOP*10; l++){
-	        clock_gettime(CLOCK_MONOTONIC, &startTime);
+
+	memset(runs, 0, sizeof(struct Record) * LOOP * 10);
+	for (l = 0; l < LOOP * 10; l++)
+	{
+		clock_gettime(CLOCK_MONOTONIC, &runs[l].start);
 #ifdef BYPASS
 		bp_write(fd, buf, file_size);
 #else
-	        syscall(SYS_write, fd, buf, file_size);
+		syscall(SYS_write, fd, buf, file_size);
 #endif
-	        clock_gettime(CLOCK_MONOTONIC,&endTime);
-		calc_diff(&diffTime, &endTime, &startTime);
-		fprintf(fp, "%d,%d,%ld.%09ld\n", l, file_size, diffTime.tv_sec, diffTime.tv_nsec);
-		fflush(fp);
+		clock_gettime(CLOCK_MONOTONIC, &runs[l].end);
 	}
 
-        close(fd);
+	close(fd);
+
+	for (l = 0; l < LOOP * 10; l++)
+	{
+		calc_diff(&diff, &runs[l].end, &runs[l].start);
+		fprintf(fp, "%d,%d,%ld.%09ld\n", l, file_size, diff.tv_sec, diff.tv_nsec);
+	}
+	fflush(fp);
 
 #if defined(USE_VMALLOC)
 	vfree(buf);
+	vfree(runs);
 #elif defined(USE_MALLOC)
 	free(buf);
+	free(runs);
 #else
 	syscall(SYS_munmap, buf, file_size);
+	munmap(runs, sizeof(struct Record) * LOOP * 10);
 #endif
-	
-        return;
+
+	return;
 }
 
-void read_bench(int file_size){
-	struct timespec startTime = { 0, 0 }, endTime = { 0, 0 };
-	struct timespec diffTime = { 0, 0 }, aveTime = { 0, 0 };
-        char *buf;
+void read_bench(int file_size)
+{
+	struct timespec diff = {0, 0};
+	char *buf;
 	int fd, l, i;
-       
+	struct Record *runs;
+
 #if defined(USE_VMALLOC)
 	buf = (char *)vmalloc(sizeof(char) * file_size);
+	runs = (struct Record*)vmalloc(sizeof(struct Record) * LOOP * 10);
 #elif defined(USE_MALLOC)
 	buf = (char *)malloc(sizeof(char) * file_size);
+	runs = (struct Record*)malloc(sizeof(struct Record) * LOOP * 10);
 #else
-	buf = (char *)syscall(SYS_mmap, (void *) ADDR_HINT, sizeof(char) * file_size, \
-			PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+	buf = (char *)syscall(SYS_mmap, (void *)ADDR_HINT, sizeof(char) * file_size,
+						  PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+	runs = (struct Record*)mmap(NULL, sizeof(struct Record) * LOOP * 10, PROT_READ | PROT_WRITE,
+				MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
 #endif
-        for (i = 0; i < file_size; i++) {
-		buf[i] = i%93;
-        }
+	for (i = 0; i < file_size; i++)
+	{
+		buf[i] = i % 93;
+	}
 	fd = open("test_file.txt", O_RDONLY);
-        if (fd < 0) {
+	if (fd < 0)
+	{
 		perror("invalid fd in read\n");
 		exit(0);
 	}
 
-	for(l = 0; l < LOOP*10; l++){
-	        clock_gettime(CLOCK_MONOTONIC, &startTime);
+	memset(runs, 0, sizeof(struct Record) * LOOP * 10);
+	for (l = 0; l < LOOP * 10; l++)
+	{
+		clock_gettime(CLOCK_MONOTONIC, &runs[l].start);
 #ifdef BYPASS
 		bp_read(fd, buf, file_size);
 #else
 		syscall(SYS_read, fd, buf, file_size);
 #endif
-	        clock_gettime(CLOCK_MONOTONIC,&endTime);
-		calc_diff(&diffTime, &endTime, &startTime);
-		fprintf(fp, "%d,%d,%ld.%09ld\n", l, file_size, diffTime.tv_sec, diffTime.tv_nsec);
-		fflush(fp);
+		clock_gettime(CLOCK_MONOTONIC, &runs[l].end);
 	}
-	
-        close(fd);
+
+	close(fd);
+
+	for (l = 0; l < LOOP * 10; l++)
+	{
+		calc_diff(&diff, &runs[l].end, &runs[l].start);
+		fprintf(fp, "%d,%d,%ld.%09ld\n", l, file_size, diff.tv_sec, diff.tv_nsec);
+	}
+	fflush(fp);
 
 #if defined(USE_VMALLOC)
 	vfree(buf);
+	vfree(runs);
 #elif defined(USE_MALLOC)
 	free(buf);
+	free(runs);
 #else
 	syscall(SYS_munmap, buf, file_size);
+	munmap(runs, sizeof(struct Record) * LOOP * 10);
 #endif
 
-        return;
+	return;
 }
 
 #define sock "./my_sock"
-void send_bench(int msg_size){
-	struct timespec startTime = { 0, 0 }, endTime = { 0, 0 };
-	struct timespec diffTime = { 0, 0 }, aveTime = { 0, 0 };
+void send_bench(int msg_size)
+{
+	struct timespec diff = {0, 0};
 
 	// need to set affinity of parent and child to different cpus
-        int retval, forkId, status, l;
-        int fds1[2], fds2[2];
-        char w = 'b', r;
+	int retval, forkId, status, l;
+	int fds1[2], fds2[2];
+	char w = 'b', r;
 	char *buf;
-        struct sockaddr_un server_addr;
-	
-	int recvbuff, retsock, sendbuff, newbuff;
-	socklen_t optlen = sizeof(recvbuff);
-        
-	cpu_set_t cpuset;
-        int prio;
+	struct sockaddr_un server_addr;
+	struct Record *runs;
 
-        memset(&server_addr, 0, sizeof(struct sockaddr_un));
-        server_addr.sun_family = AF_UNIX;
+	memset(&server_addr, 0, sizeof(struct sockaddr_un));
+	server_addr.sun_family = AF_UNIX;
 
-        strncpy(server_addr.sun_path, sock, sizeof(server_addr.sun_path) - 1);
-        
+	strncpy(server_addr.sun_path, sock, sizeof(server_addr.sun_path) - 1);
+
 	// create a buffer (this needs to be mmap)
 #if defined(USE_VMALLOC)
 	buf = (char *)vmalloc(sizeof(char) * msg_size);
+	runs = (struct Record *)vmalloc(sizeof(struct Record) * LOOP);
 #elif defined(USE_MALLOC)
-        buf = (char *)malloc(sizeof(char) * msg_size);
+	buf = (char *)malloc(sizeof(char) * msg_size);
+	runs = (struct Record *)malloc(sizeof(struct Record) * LOOP);
 #else
-	buf = (char *)syscall(SYS_mmap, (void *) ADDR_HINT, sizeof(char) * msg_size, \
-			PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+	buf = (char *)syscall(SYS_mmap, (void *)ADDR_HINT, sizeof(char) * msg_size,
+						  PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+	runs = (struct Record *)mmap(NULL, sizeof(struct Record) * LOOP, PROT_READ | PROT_WRITE,
+								MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
 #endif
 
 	// write character 'a' in the buffer
-        for (int i = 0; i < msg_size; i++) {
+	for (int i = 0; i < msg_size; i++)
+	{
 		buf[i] = 'a';
 	}
 
-	for(l = 0; l < LOOP; l++){
+	memset(runs, 0, sizeof(struct Record) * LOOP);
+
+	for (l = 0; l < LOOP; l++)
+	{
 		retval = pipe(fds1);
-        	if (retval != 0) printf("[error] failed to open pipe1.\n");
-        	retval = pipe(fds2);
-        	if (retval != 0) printf("[error] failed to open pipe1.\n");
-                
+		if (retval != 0)
+			printf("[error] failed to open pipe1.\n");
+		retval = pipe(fds2);
+		if (retval != 0)
+			printf("[error] failed to open pipe1.\n");
+
 		forkId = fork();
-		
-		if (forkId < 0) {
+
+		if (forkId < 0)
+		{
 			printf("[error] fork failed.\n");
 			return;
 		}
-		if (forkId == 0) {
-	                close(fds1[0]); // close the read end of pipe 1
-	                close(fds2[1]); // close the write end of pipe 2
-	
-	                int fd_server = socket(AF_UNIX, SOCK_STREAM, 0); // create a socket for server
-	                if (fd_server < 0) printf("[error] failed to open server socket.\n");
-			
-	                // bind the socket to a filename so communication can occur
-	                retval = bind(fd_server, (struct sockaddr *) &server_addr, sizeof(struct sockaddr_un));
-	                if (retval == -1) printf("[error] failed to bind.\n");
-	
-	                // Listen on the socket
-	                retval = listen(fd_server, 10);
-	                if (retval == -1) printf("[error] failed to listen.\n");
-	                if (DEBUG) printf("Waiting for connection\n");
-	
-	                // Write to pipe 1 to let parent know we are listening
-	                write(fds1[1], &w, 1);
-	
-	                // wait for connection
-	                int fd_connect = accept(fd_server, (struct sockaddr *)0,
-	                                        (socklen_t *)0);
-	                if (DEBUG) printf("Connection accepted.\n");
-	
-	                // Read update from parent on pipe 2
-	                read(fds2[0], &r, 1);
-	
-	                // remove sockets and close file descriptors and pipes
-	                remove(sock);
-	                close(fd_server);
-	                close(fd_connect);
-	                close(fds1[1]);
-	                close(fds2[0]);
-	
-	                // job done, time to exit
+		if (forkId == 0)
+		{
+			close(fds1[0]); // close the read end of pipe 1
+			close(fds2[1]); // close the write end of pipe 2
+
+			int fd_server = socket(AF_UNIX, SOCK_STREAM, 0); // create a socket for server
+			if (fd_server < 0)
+				printf("[error] failed to open server socket.\n");
+
+			// bind the socket to a filename so communication can occur
+			retval = bind(fd_server, (struct sockaddr *)&server_addr, sizeof(struct sockaddr_un));
+			if (retval == -1)
+				printf("[error] failed to bind.\n");
+
+			// Listen on the socket
+			retval = listen(fd_server, 10);
+			if (retval == -1)
+				printf("[error] failed to listen.\n");
+			if (DEBUG)
+				printf("Waiting for connection\n");
+
+			// Write to pipe 1 to let parent know we are listening
+			write(fds1[1], &w, 1);
+
+			// wait for connection
+			int fd_connect = accept(fd_server, (struct sockaddr *)0,
+									(socklen_t *)0);
+			if (DEBUG)
+				printf("Connection accepted.\n");
+
+			// Read update from parent on pipe 2
+			read(fds2[0], &r, 1);
+
+			// remove sockets and close file descriptors and pipes
+			remove(sock);
+			close(fd_server);
+			close(fd_connect);
+			close(fds1[1]);
+			close(fds2[0]);
+
+			// job done, time to exit
 			exit(0);
-	        } else {
-	                close(fds1[1]); // close the write end of pipe 1
-	                close(fds2[0]); // close the read end of pipe 2
-	
-	                // Wait for update from child
-	                read(fds1[0], &r, 1);
-	
-	                // create socket
-	                int fd_client = socket(AF_UNIX, SOCK_STREAM, 0);
-	                if (fd_client < 0) printf("[error] failed to open client socket.\n");
-	
-	                // connect to child address
-	                retval = connect(fd_client, (struct sockaddr *) &server_addr, sizeof(struct sockaddr_un));
-	                if (retval == -1) printf("[error] failed to connect.\n");
-	
-	                // send the buffer over to child (for warm-up)
-	                retval = send(fd_client, buf, msg_size, MSG_DONTWAIT);
-	
-	                // send buffer over to child and measure latency
-        	        clock_gettime(CLOCK_MONOTONIC,&startTime);
+		}
+		else
+		{
+			close(fds1[1]); // close the write end of pipe 1
+			close(fds2[0]); // close the read end of pipe 2
+
+			// Wait for update from child
+			read(fds1[0], &r, 1);
+
+			// create socket
+			int fd_client = socket(AF_UNIX, SOCK_STREAM, 0);
+			if (fd_client < 0)
+				printf("[error] failed to open client socket.\n");
+
+			// connect to child address
+			retval = connect(fd_client, (struct sockaddr *)&server_addr, sizeof(struct sockaddr_un));
+			if (retval == -1)
+				printf("[error] failed to connect.\n");
+
+			// send the buffer over to child (for warm-up)
+			retval = send(fd_client, buf, msg_size, MSG_DONTWAIT);
+
+			// send buffer over to child and measure latency
+			clock_gettime(CLOCK_MONOTONIC, &runs[l].start);
 #ifdef BYPASS
-                	retval = bp_sendto(fd_client, buf, msg_size, MSG_DONTWAIT, NULL, 0);
+			retval = bp_sendto(fd_client, buf, msg_size, MSG_DONTWAIT, NULL, 0);
 #else
-	                retval = syscall(SYS_sendto, fd_client, buf, msg_size, MSG_DONTWAIT, NULL, 0);
+			retval = syscall(SYS_sendto, fd_client, buf, msg_size, MSG_DONTWAIT, NULL, 0);
 #endif
-        	        clock_gettime(CLOCK_MONOTONIC,&endTime);
-	
-                	if (retval == -1) {
+			clock_gettime(CLOCK_MONOTONIC, &runs[l].end);
+
+			if (retval == -1)
+			{
 				printf("[error %d] failed to send. %s\n", errno, strerror(errno));
 			}
-	
-			calc_diff(&diffTime, &endTime, &startTime);
-			fprintf(fp, "%d,%d,%ld.%09ld\n", l, msg_size, diffTime.tv_sec, diffTime.tv_nsec);
-			fflush(fp);
 
 			// update child so clean-up can happen
-	                write(fds2[1], &w, 1);
-	
-	                // do cleanup your-self
-	                close(fd_client);
-	                close(fds1[0]);
-	                close(fds2[1]);
-	
-	                wait(&status);
+			write(fds2[1], &w, 1);
+
+			// do cleanup your-self
+			close(fd_client);
+			close(fds1[0]);
+			close(fds2[1]);
+
+			wait(&status);
 		}
 	}
 
+	for (l = 0; l < LOOP; l++)
+	{
+		calc_diff(&diff, &runs[l].end, &runs[l].start);
+		fprintf(fp, "%d,%d,%ld.%09ld\n", l, msg_size, diff.tv_sec, diff.tv_nsec);
+	}
+	fflush(fp);
+
 #if defined(USE_VMALLOC)
 	vfree(buf);
+	vfree(runs);
 #elif defined(USE_MALLOC)
-       	free(buf);
+	free(buf);
+	free(runs);
 #else
 	syscall(SYS_munmap, buf, msg_size);
+	munmap(runs, sizeof(struct Record) * LOOP);
 #endif
 
-        return;
+	return;
 }
 
-void recv_bench(int msg_size){
-	struct timespec startTime = { 0, 0 }, endTime = { 0, 0 };
-	struct timespec diffTime = { 0, 0 }, aveTime = { 0, 0 };
+void recv_bench(int msg_size)
+{
+	struct timespec diff = {0, 0};
 
 	// need to set affinity of parent and child to different cpus
-        int retval, forkId, status, l;
-        int fds1[2], fds2[2];
-        char w = 'b', r;
+	int retval, forkId, status, l;
+	int fds1[2], fds2[2];
+	char w = 'b', r;
 	char *buf;
-        struct sockaddr_un server_addr;
-        
-	int recvbuff, retsock, sendbuff, newbuff;
-	socklen_t optlen = sizeof(recvbuff);
+	struct sockaddr_un server_addr;
+	struct Record *runs;
 
-	cpu_set_t cpuset;
-        int prio;
+	if (DEBUG)
+		printf("recv_bench(%d)\n", msg_size);
 
-	if (DEBUG) printf("recv_bench(%d)\n", msg_size);
+	memset(&server_addr, 0, sizeof(struct sockaddr_un));
+	server_addr.sun_family = AF_UNIX;
 
-        memset(&server_addr, 0, sizeof(struct sockaddr_un));
-        server_addr.sun_family = AF_UNIX;
+	strncpy(server_addr.sun_path, sock, sizeof(server_addr.sun_path) - 1);
 
-        strncpy(server_addr.sun_path, sock, sizeof(server_addr.sun_path) - 1);
-        
-	        
 	// create a buffer (this needs to be mmap)
 #if defined(USE_VMALLOC)
 	buf = (char *)vmalloc(sizeof(char) * msg_size);
+	runs = (struct Record *)vmalloc(sizeof(struct Record) * LOOP);
 #elif defined(USE_MALLOC)
-        buf = (char *)malloc(sizeof(char) * msg_size);
+	buf = (char *)malloc(sizeof(char) * msg_size);
+	runs = (struct Record *)malloc(sizeof(struct Record) * LOOP);
 #else
-	buf = (char *)syscall(SYS_mmap, (void *) ADDR_HINT, sizeof(char) * msg_size, \
-                       	PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+	buf = (char *)syscall(SYS_mmap, (void *)ADDR_HINT, sizeof(char) * msg_size,
+						  PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+	runs = (struct Record *)mmap(NULL, sizeof(struct Record) * LOOP, PROT_READ | PROT_WRITE,
+								MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
 #endif
-	
-	for(l = 0; l < LOOP; l++){
+
+	memset(runs, 0, sizeof(struct Record) * LOOP);
+
+	for (l = 0; l < LOOP; l++)
+	{
 		retval = pipe(fds1);
-	        if (retval != 0) printf("[error] failed to open pipe1.\n");
-	        retval = pipe(fds2);
-	        if (retval != 0) printf("[error] failed to open pipe1.\n");
+		if (retval != 0)
+			printf("[error] failed to open pipe1.\n");
+		retval = pipe(fds2);
+		if (retval != 0)
+			printf("[error] failed to open pipe1.\n");
 		forkId = fork();
-		
-		if (forkId < 0) {
+
+		if (forkId < 0)
+		{
 			printf("[error] fork failed.\n");
 			return;
 		}
-		if (forkId > 0) { // parent
-	                close(fds1[0]); // close the read end of pipe 1
-	                close(fds2[1]); // close the write end of pipe 2
-	
+		if (forkId > 0)
+		{					// parent
+			close(fds1[0]); // close the read end of pipe 1
+			close(fds2[1]); // close the write end of pipe 2
+
 			// create a socket for server
-	                int fd_server = socket(AF_UNIX, SOCK_STREAM, 0);
-	                if (fd_server < 0) printf("[error] failed to open server socket.\n");
-	
-	                // bind the socket to a filename so communication can occur
-	                retval = bind(fd_server, (struct sockaddr *) &server_addr, sizeof(struct sockaddr_un));
-	                if (retval == -1) printf("[error] failed to bind.\n");
-	
-	                // Listen on the socket
-	                retval = listen(fd_server, 10);
-	                if (retval == -1) printf("[error] failed to listen.\n");
-	                if (DEBUG) printf("Waiting for connection\n");
-	
-	                // Write to pipe 1 to let parent know we are listening
-	                write(fds1[1], &w, 1);
-	
-	                // wait for connection
-	                int fd_connect = accept(fd_server, (struct sockaddr *)0,
-	                                        (socklen_t *)0);
-	                if (DEBUG) printf("Connection accepted.\n");
-	
-	                // Read update from parent on pipe 2
-	                read(fds2[0], &r, 1);
-	
+			int fd_server = socket(AF_UNIX, SOCK_STREAM, 0);
+			if (fd_server < 0)
+				printf("[error] failed to open server socket.\n");
+
+			// bind the socket to a filename so communication can occur
+			retval = bind(fd_server, (struct sockaddr *)&server_addr, sizeof(struct sockaddr_un));
+			if (retval == -1)
+				printf("[error] failed to bind.\n");
+
+			// Listen on the socket
+			retval = listen(fd_server, 11);
+			if (retval == -1)
+				printf("[error] failed to listen.\n");
+			if (DEBUG)
+				printf("Waiting for connection\n");
+
+			// Write to pipe 1 to let parent know we are listening
+			write(fds1[1], &w, 1);
+
+			// wait for connection
+			int fd_connect = accept(fd_server, (struct sockaddr *)0,
+									(socklen_t *)0);
+			if (DEBUG)
+				printf("Connection accepted.\n");
+
+			// Read update from parent on pipe 2
+			read(fds2[0], &r, 1);
+
 			// recv data from child (for warm-up)
-		        retval = recv(fd_connect, buf, msg_size, MSG_DONTWAIT);
-	
-        	        // recv data from child and measure latency
-        	        clock_gettime(CLOCK_MONOTONIC,&startTime);
+			retval = recv(fd_connect, buf, msg_size, MSG_DONTWAIT);
+
+			// recv data from child and measure latency
+			clock_gettime(CLOCK_MONOTONIC, &runs[l].start);
 #ifdef BYPASS
-                	retval = bp_recvfrom(fd_connect, buf, msg_size, MSG_DONTWAIT, NULL, NULL);
+			retval = bp_recvfrom(fd_connect, buf, msg_size, MSG_DONTWAIT, NULL, NULL);
 #else
 			retval = syscall(SYS_recvfrom, fd_connect, buf, msg_size, MSG_DONTWAIT, NULL, NULL);
 #endif
-        	        clock_gettime(CLOCK_MONOTONIC,&endTime);
+			clock_gettime(CLOCK_MONOTONIC, &runs[l].end);
 
-                	if (retval == -1) {
+			if (retval == -1)
+			{
 				printf("[error %d] failed to send. %s\n", errno, strerror(errno));
 			}
 
-			calc_diff(&diffTime, &endTime, &startTime);
-			fprintf(fp, "%d,%d,%ld.%09ld\n", l, msg_size, diffTime.tv_sec, diffTime.tv_nsec);
-			fflush(fp);
-	
 			// update child so clean-up can happen
-	                write(fds1[1], &w, 1);
-	
-	                // remove sockets and close file descriptors and pipes
-	                remove(sock);
-	                close(fd_server);
-	                close(fd_connect);
-	                close(fds1[1]);
-	                close(fds2[0]);
-	
-	                wait(&status);
-	        } else {
-	                close(fds1[1]); // close the write end of pipe 1
-	                close(fds2[0]); // close the read end of pipe 2
-	
-	                // Wait for update from parent
-	                read(fds1[0], &r, 1);
-	
-	                // create socket
-	                int fd_client = socket(AF_UNIX, SOCK_STREAM, 0);
-	                if (fd_client < 0) printf("[error] failed to open client socket.\n");
-	
-	                // connect to parent address
-	                retval = connect(fd_client, (struct sockaddr *) &server_addr, sizeof(struct sockaddr_un));
-	                if (retval == -1) printf("[error] failed to connect.\n");
-	
-	        	// write character 'a' in the buffer
-	                for (int i = 0; i < msg_size; i++) {
-	                       	buf[i] = i%93;
-		        }
-	
-			// send data over to parent + one more copy for warm up
-			for(l = 0; l < 2; l++){
-				retval = syscall(SYS_sendto, fd_client, buf, msg_size, MSG_DONTWAIT, NULL, 0);
-	
-	                        if (retval == -1) {
-	                                printf("[error %d] failed to send. %s\n", errno, strerror(errno));
-	                        }
+			write(fds1[1], &w, 1);
+
+			// remove sockets and close file descriptors and pipes
+			remove(sock);
+			close(fd_server);
+			close(fd_connect);
+			close(fds1[1]);
+			close(fds2[0]);
+
+			wait(&status);
+		}
+		else
+		{
+			close(fds1[1]); // close the write end of pipe 1
+			close(fds2[0]); // close the read end of pipe 2
+
+			// Wait for update from parent
+			read(fds1[0], &r, 1);
+
+			// create socket
+			int fd_client = socket(AF_UNIX, SOCK_STREAM, 0);
+			if (fd_client < 0)
+				printf("[error] failed to open client socket.\n");
+
+			// connect to parent address
+			retval = connect(fd_client, (struct sockaddr *)&server_addr, sizeof(struct sockaddr_un));
+			if (retval == -1)
+				printf("[error] failed to connect.\n");
+
+			// write character 'a' in the buffer
+			for (int i = 0; i < msg_size; i++)
+			{
+				buf[i] = i % 93;
 			}
-	
+
+			// send data over to parent + one more copy for warm up
+			for (l = 0; l < 2; l++)
+			{
+				retval = syscall(SYS_sendto, fd_client, buf, msg_size, MSG_DONTWAIT, NULL, 0);
+
+				if (retval == -1)
+				{
+					printf("[error %d] failed to send. %s\n", errno, strerror(errno));
+				}
+			}
+
 			// tell parent it should start reading
-	                write(fds2[1], &w, 1);
-	
-	                // wait for parent
-	                read(fds1[0], &r, 1);
-	
-	                // do cleanup your-self
-	                close(fd_client);
-	                close(fds1[0]);
-	                close(fds2[1]);
-	
-	                // job done, time to exit
+			write(fds2[1], &w, 1);
+
+			// wait for parent
+			read(fds1[0], &r, 1);
+
+			// do cleanup your-self
+			close(fd_client);
+			close(fds1[0]);
+			close(fds2[1]);
+
+			// job done, time to exit
 			exit(0);
 		}
 	}
 
+	for (l = 0; l < LOOP; l++)
+	{
+		calc_diff(&diff, &runs[l].end, &runs[l].start);
+		fprintf(fp, "%d,%d,%ld.%09ld\n", l, msg_size, diff.tv_sec, diff.tv_nsec);
+	}
+	fflush(fp);
+
 #if defined(USE_VMALLOC)
 	vfree(buf);
+	vfree(runs);
 #elif defined(USE_MALLOC)
-       	free(buf);
+	free(buf);
+	free(runs);
 #else
 	syscall(SYS_munmap, buf, msg_size);
+	munmap(runs, sizeof(struct Record) * LOOP);
 #endif
 
-        return;
+	return;
 }
 
 struct timespec *forkTime;
 
-void fork_bench(void){
-	struct timespec startTime = { 0, 0 }, endTime = { 0, 0 };
-	struct timespec diffTime = { 0, 0 }, aveTime = { 0, 0 };
-	forkTime = mmap(NULL, sizeof(struct timespec), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
+void fork_bench(void)
+{
+	struct timespec diff = {0, 0}, ave= {0, 0};
+	forkTime = mmap(NULL, sizeof(struct timespec) * LOOP, PROT_READ | PROT_WRITE,
+					MAP_SHARED | MAP_ANONYMOUS, -1, 0);
 	int forkId, l, status;
-	
-	for(l = 0; l < LOOP; l++){
-		clock_gettime(CLOCK_MONOTONIC, &startTime);
+	struct Record *runs;
+
+#if defined(USE_VMALLOC)
+	runs = (struct Record *)vmalloc(sizeof(struct Record) * LOOP);
+#elif defined(USE_MALLOC)
+	runs = (struct Record *)malloc(sizeof(struct Record) * LOOP);
+#else
+	runs = (struct Record *)mmap(NULL, sizeof(struct Record) * LOOP, PROT_READ | PROT_WRITE,
+								MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+#endif
+
+	memset(runs, 0, sizeof(struct Record) * LOOP);
+	memset(forkTime, 0, sizeof(struct timespec) * LOOP);
+	for (l = 0; l < LOOP; l++)
+	{
+		clock_gettime(CLOCK_MONOTONIC, &runs[l].start);
 		forkId = fork();
-		if (forkId == 0){
-			clock_gettime(CLOCK_MONOTONIC, forkTime);
+		if (forkId == 0)
+		{
+			clock_gettime(CLOCK_MONOTONIC, &forkTime[l]);
 			exit(0);
-		} else if (forkId > 0){
-	        	clock_gettime(CLOCK_MONOTONIC,&endTime);
-			wait(&status);
-		} else {
-			printf("[error] fork failed.\n"); fflush(stdout);
 		}
-		calc_diff(&diffTime, &endTime, &startTime);
-		calc_diff(&aveTime, forkTime, &startTime);
-                fprintf(fp, "%d,%ld.%09ld,%ld.%09ld\n", l, diffTime.tv_sec, diffTime.tv_nsec, aveTime.tv_sec, aveTime.tv_nsec);
-		fflush(fp);
+		else if (forkId > 0)
+		{
+			clock_gettime(CLOCK_MONOTONIC, &runs[l].end);
+			wait(&status);
+		}
+		else
+		{
+			printf("[error] fork failed.\n");
+			fflush(stdout);
+		}
 	}
-	
+
+	for (l = 0; l < LOOP; l++)
+	{
+		calc_diff(&diff, &runs[l].end, &runs[l].start);
+		calc_diff(&ave, forkTime, &runs[l].start);
+		fprintf(fp, "%d,%ld.%09ld,%ld.%09ld\n", l, diff.tv_sec, diff.tv_nsec, ave.tv_sec, ave.tv_nsec);
+	}
+	fflush(fp);
+
 	munmap(forkTime, sizeof(struct timespec));
+
+#if defined(USE_VMALLOC)
+	vfree(runs);
+#elif defined(USE_MALLOC)
+	free(runs);
+#else
+	munmap(runs, sizeof(struct Record) * LOOP);
+#endif
+
 	return;
 }
-
-struct timespec *threadTime;
 
 void *thrdfnc(void *args)
 {
-        clock_gettime(CLOCK_MONOTONIC,threadTime);
+	clock_gettime(CLOCK_MONOTONIC, (struct timespec*)args);
 	pthread_exit(0);
 }
 
-void thread_bench(void){
-	struct timespec startTime = { 0, 0 }, endTime = { 0, 0 };
-	struct timespec diffTime = { 0, 0 }, aveTime = { 0, 0 };
-	int l, retval;
+void thread_bench(void)
+{
+	struct timespec diff = {0, 0}, ave= {0, 0};
+	int l;
 	pthread_t newThrd;
-	
-	threadTime = (struct timespec *)malloc(sizeof(struct timespec));
-	
-	for(l = 0; l < LOOP; l++){
-	        clock_gettime(CLOCK_MONOTONIC, &startTime);
-		retval = pthread_create (&newThrd, NULL, thrdfnc, NULL);
-	        clock_gettime(CLOCK_MONOTONIC,&endTime);
-		
-		pthread_join(newThrd,NULL);
-		
-		calc_diff(&diffTime, &endTime, &startTime);
-		calc_diff(&aveTime, threadTime, &startTime);
-                fprintf(fp, "%d,%ld.%09ld,%ld.%09ld\n", l, diffTime.tv_sec, diffTime.tv_nsec, aveTime.tv_sec, aveTime.tv_nsec);
-		fflush(fp);
+	struct timespec *threads;
+	struct Record *runs;
+
+#if defined(USE_VMALLOC)
+	runs = (struct Record *)vmalloc(sizeof(struct Record) * LOOP);
+	threads = (struct timespec *)vmalloc(sizeof(struct timespec) * LOOP);
+#elif defined(USE_MALLOC)
+	runs = (struct Record *)malloc(sizeof(struct Record) * LOOP);
+	threads = (struct timespec *)malloc(sizeof(struct timespec) * LOOP);
+#else
+	runs = (struct Record *)mmap(NULL, sizeof(struct Record) * LOOP, PROT_READ | PROT_WRITE,
+								MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+	threads = (struct timespec *)mmap(NULL, sizeof(struct timespec) * LOOP, PROT_READ | PROT_WRITE,
+								MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+#endif
+
+	memset(runs, 0, sizeof(struct Record) * LOOP);
+	memset(threads, 0, sizeof(struct timespec) * LOOP);
+	for (l = 0; l < LOOP; l++)
+	{
+		clock_gettime(CLOCK_MONOTONIC, &runs[l].start);
+		pthread_create(&newThrd, NULL, thrdfnc, &threads[l]);
+		clock_gettime(CLOCK_MONOTONIC, &runs[l].end);
+
+		pthread_join(newThrd, NULL);
 	}
-	
-	free(threadTime);
+
+	for (l = 0; l < LOOP; l++)
+	{
+		calc_diff(&diff, &runs[l].end, &runs[l].start);
+		calc_diff(&ave, &threads[l], &runs[l].start);
+		fprintf(fp, "%d,%ld.%09ld,%ld.%09ld\n", l, diff.tv_sec, diff.tv_nsec, ave.tv_sec, ave.tv_nsec);
+	}
+	fflush(fp);
+
+#if defined(USE_VMALLOC)
+	vfree(runs);
+	vfree(threads);
+#elif defined(USE_MALLOC)
+	free(runs);
+	free(threads);
+#else
+	munmap(runs, sizeof(struct Record) * LOOP);
+	munmap(threads, sizeof(struct timespec) * LOOP);
+#endif
+
 	return;
 }
 
-void pagefault_bench(int file_size){
-	struct timespec startTime = { 0, 0 }, endTime = { 0, 0 };
-	struct timespec diffTime = { 0, 0 }, aveTime = { 0, 0 };
-        char *buf;
-	int fd, l, i;
-	FILE *fp2;
+void pagefault_bench(int file_size)
+{
+	struct timespec diff = {0, 0};
+	struct Record *runs;
+	int l, i;
 	char *addr;
-	char a[file_size];
 
-	for(l = 0; l < LOOP; l++){
-	        fd = open("tmp_file.txt", O_CREAT | O_WRONLY, S_IRUSR | S_IWUSR);
-	        if (fd < 0){
-		       	perror("invalid fd in write\n");
-			exit(0);
-		}
+#if defined(USE_VMALLOC)
+	runs = (struct Record *)vmalloc(sizeof(struct Record) * LOOP);
+#elif defined(USE_MALLOC)
+	runs = (struct Record *)malloc(sizeof(struct Record) * LOOP);
+#else
+	runs = (struct Record *)mmap(NULL, sizeof(struct Record) * LOOP, PROT_READ | PROT_WRITE,
+								MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+#endif
 
-		addr = (char *)syscall(SYS_mmap, (void *) ADDR_HINT, file_size, PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-		clock_gettime(CLOCK_MONOTONIC, &startTime);
+	memset(runs, 0, sizeof(struct Record) * LOOP);
+	for (l = 0; l < LOOP; l++)
+	{
+		addr = (char *)mmap((void *)ADDR_HINT, file_size, PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
 		i = 0;
-		while (i < file_size) {
-			addr[i] = i%93 + 33;
+		clock_gettime(CLOCK_MONOTONIC, &runs[l].start);
+		while (i < file_size)
+		{
+			addr[i] = i % 93 + 33;
 			i = i + 4096;
-			//i++;
-	        }
-	        clock_gettime(CLOCK_MONOTONIC,&endTime);
-	        
-		syscall(SYS_write, fd, addr, file_size);
-	
-		close(fd);
+		}
+		clock_gettime(CLOCK_MONOTONIC, &runs[l].end);
 
-		syscall(SYS_munmap, addr, file_size);
-	
-		calc_diff(&diffTime, &endTime, &startTime);
-		fprintf(fp, "%d,%d,%ld.%09ld\n", l, file_size, diffTime.tv_sec, diffTime.tv_nsec);
-		fflush(fp);
+		munmap(addr, file_size);
+
 	}
-        return;
+
+	for (l = 0; l < LOOP; l++)
+	{
+		calc_diff(&diff, &runs[l].end, &runs[l].start);
+		fprintf(fp, "%d,%d,%ld.%09ld\n", l, file_size, diff.tv_sec, diff.tv_nsec);
+
+	}
+	fflush(fp);
+
+#if defined(USE_VMALLOC)
+	vfree(runs);
+#elif defined(USE_MALLOC)
+	free(runs);
+#else
+	munmap(runs, sizeof(struct Record) * LOOP);
+#endif
+
+	return;
 }
 
-void stack_pagefault_bench(int file_size){
-	struct timespec startTime = { 0, 0 }, endTime = { 0, 0 };
-	struct timespec diffTime = { 0, 0 }, aveTime = { 0, 0 };
-        char *buf;
-	int fd, l, i;
-	FILE *fp2;
+void stack_pagefault_bench(int file_size)
+{
+	int l, i;
 	char *addr;
-	char a[file_size];
+	struct Record *runs;
 
-	for(l = 0; l < LOOP; l++){
-	        fd = open("tmp_file.txt", O_CREAT | O_WRONLY);
-	        if (fd < 0){
-		       	printf("invalid fd in write: %d\n", fd);
-			exit(0);
-		}
+#if defined(USE_VMALLOC)
+	runs = (struct Record *)vmalloc(sizeof(struct Record) * LOOP);
+#elif defined(USE_MALLOC)
+	runs = (struct Record *)malloc(sizeof(struct Record) * LOOP);
+#else
+	runs = (struct Record *)mmap(NULL, sizeof(struct Record) * LOOP, PROT_READ | PROT_WRITE,
+								MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+#endif
 
-		addr = (char*)alloca(file_size * sizeof(long));
-		
-		clock_gettime(CLOCK_MONOTONIC, &startTime);
+	memset(runs, 0, sizeof(struct Record) * LOOP);
+	for (l = 0; l < LOOP; l++)
+	{
+		addr = (char *)alloca(file_size * sizeof(long));
+		clock_gettime(CLOCK_MONOTONIC, &runs[l].start);
 		i = 0;
-		while (i < file_size) {
-			addr[i] = i%93 + 33;
+		while (i < file_size)
+		{
+			addr[i] = i % 93 + 33;
 			i = i + 4096;
-	        }
-	        clock_gettime(CLOCK_MONOTONIC,&endTime);
-	        
-		syscall(SYS_write, fd, addr, file_size);
-	
-		close(fd);
-
-		calc_diff(&diffTime, &endTime, &startTime);
-		fprintf(fp, "%d,%d,%ld.%09ld\n", l, file_size, diffTime.tv_sec, diffTime.tv_nsec);
-		fflush(fp);
+		}
+		clock_gettime(CLOCK_MONOTONIC, &runs[l].end);
 	}
-        return;
+
+	for (l = 0; l < LOOP; l++)
+	{
+		struct timespec diff;
+		calc_diff(&diff, &runs[l].end, &runs[l].start);
+		fprintf(fp, "%d,%d,%ld.%09ld\n", l, file_size, diff.tv_sec, diff.tv_nsec);
+	}
+	fflush(fp);
+
+#if defined(USE_VMALLOC)
+	vfree(runs);
+#elif defined(USE_MALLOC)
+	free(runs);
+#else
+	munmap(runs, sizeof(struct Record) * LOOP);
+#endif
+
+	return;
 }
 
+static void select_bench(size_t fd_count, int iters)
+{
+	struct Record *runs;
+	int *fds;
+	fd_set rfds;
+	struct timeval timeout;
+	int maxFd = 0;
+
+	FD_ZERO(&rfds);
+	timeout.tv_sec = 0;
+	timeout.tv_usec = 0;
+
+#if defined(USE_VMALLOC)
+	fds = (int *)vmalloc(sizeof(int) * fd_count);
+	runs = (struct Record *)vmalloc(sizeof(struct Record) * iters);
+#elif defined(USE_MALLOC)
+	fds = (int *)malloc(sizeof(int) * fd_count);
+	runs = (struct Record *)malloc(sizeof(struct Record) * iters);
+#else
+	fds = (int *)mmap(NULL, sizeof(int) * fd_count, PROT_READ | PROT_WRITE,
+					MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+	runs = (struct Record *)mmap(NULL, sizeof(struct Record) * iters, PROT_READ | PROT_WRITE,
+								MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+#endif
+
+	for (size_t i = 0; i < fd_count; i++)
+	{
+		fds[i] = socket(AF_INET, SOCK_STREAM, 0);
+		if (fds[i] < 0)
+		{
+			i--;
+			continue;
+		}
+		if (fds[i] > maxFd)
+			maxFd = fds[i];
+		FD_SET(fds[i], &rfds);
+	}
+
+	memset(runs, 0, sizeof(struct Record) * iters);
+	for (int i = 0; i < iters; i++)
+	{
+		clock_gettime(CLOCK_MONOTONIC, &runs[i].start);
+		syscall(SYS_select, maxFd + 1, &rfds, NULL, NULL, &timeout);
+		clock_gettime(CLOCK_MONOTONIC, &runs[i].end);
+	}
+
+	for (size_t i = 0; i < fd_count; i++)
+	{
+		close(fds[i]);
+	}
+
+	for (int i = 0; i < iters; i++)
+	{
+		struct timespec diff;
+		calc_diff(&diff, &runs[i].end, &runs[i].start);
+		fprintf(fp, "%d,%ld,%ld.%09ld\n", i, fd_count, diff.tv_sec, diff.tv_nsec);
+	}
+	fflush(fp);
+
+#if defined(USE_VMALLOC)
+	vfree(fds);
+	vfree(runs);
+#elif defined(USE_MALLOC)
+	free(fds);
+	free(runs);
+#else
+	munmap(fds, sizeof(int) * fd_count);
+	munmap(runs, sizeof(struct Record) * iters);
+#endif
+}
+
+static void context_switch_bench(void)
+{
+	int iter = 1000;
+	int fds1[2], fds2[2], retval;
+	retval = pipe(fds1);
+	if (retval != 0)
+		printf("[error] failed to open pipe1.\n");
+	retval = pipe(fds2);
+	if (retval != 0)
+		printf("[error] failed to open pipe2.\n");
+
+	char w = 'a', r;
+	cpu_set_t cpuset;
+	int prio;
+	struct Record *runs;
+
+	retval = sched_getaffinity(getpid(), sizeof(cpuset), &cpuset);
+	if (retval == -1)
+		printf("[error] failed to get affinity.\n");
+	prio = getpriority(PRIO_PROCESS, 0);
+	if (prio == -1)
+		printf("[error] failed to get priority.\n");
+
+	int forkId = fork();
+	if (forkId > 0) { // is parent
+		retval = close(fds1[0]);
+		if (retval != 0)
+			printf("[error] failed to close fd1.\n");
+		retval = close(fds2[1]);
+		if (retval != 0)
+			printf("[error] failed to close fd2.\n");
+
+		cpu_set_t set;
+		CPU_ZERO(&set);
+		CPU_SET(0, &set);
+		retval = sched_setaffinity(getpid(), sizeof(set), &set);
+		if (retval == -1)
+		printf("[error] failed to set processor affinity.\n");
+		retval = setpriority(PRIO_PROCESS, 0, -20);
+		if (retval == -1)
+		printf("[error] failed to set process priority.\n");
+
+		runs = mmap(NULL, sizeof(struct Record) * iter, PROT_READ | PROT_WRITE,
+					MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+		memset(runs, 0, sizeof(struct Record) * iter);
+
+		read(fds2[0], &r, 1);
+
+		for (int i = 0; i < iter; i++) {
+			clock_gettime(CLOCK_MONOTONIC, &runs[i].start);
+			write(fds1[1], &w, 1);
+			read(fds2[0], &r, 1);
+			clock_gettime(CLOCK_MONOTONIC, &runs[i].end);
+		}
+		int status;
+		wait(&status);
+
+		close(fds1[1]);
+		close(fds2[0]);
+
+
+	} else if (forkId == 0){
+
+		retval = close(fds1[1]);
+		if (retval != 0)
+			printf("[error] failed to close fd1.\n");
+		retval = close(fds2[0]);
+		if (retval != 0)
+			printf("[error] failed to close fd2.\n");
+
+		cpu_set_t set;
+		CPU_ZERO(&set);
+		CPU_SET(0, &set);
+		retval = sched_setaffinity(getpid(), sizeof(set), &set);
+		if (retval == -1)
+			printf("[error] failed to set processor affinity.\n");
+		retval = setpriority(PRIO_PROCESS, 0, -20);
+		if (retval == -1)
+			printf("[error] failed to set process priority.\n");
+
+		write(fds2[1], &w, 1);
+		for (int i = 0; i < iter; i++) {
+			read(fds1[0], &r, 1);
+			write(fds2[1], &w, 1);
+		}
+
+        	kill(getpid(), SIGINT);
+		printf("[error] unable to kill child process\n");
+		return;
+	} else {
+		printf("[error] failed to fork.\n");
+	}
+
+	retval = sched_setaffinity(getpid(), sizeof(cpuset), &cpuset);
+	if (retval == -1)
+		printf("[error] failed to restore affinity.\n");
+	retval = setpriority(PRIO_PROCESS, 0, prio);
+	if (retval == -1)
+		printf("[error] failed to restore priority.\n");
+
+	struct timespec diff;
+	for (int i = 0; i < iter; i++)
+	{
+		calc_diff(&diff, &runs[i].end, &runs[i].start);
+		fprintf(fp, "%d,%ld.%09ld\n", i, diff.tv_sec, diff.tv_nsec);
+	}
+	fflush(fp);
+
+	munmap(runs, sizeof(struct Record) * iter);
+}
 //---------------------------------------------------------------------
 
 #ifdef BYPASS
@@ -731,29 +1121,30 @@ extern void set_bypass_limit(int val);
 extern void set_bypass_syscall(int val);
 #endif
 
-int main(void){
-	int file_size, pf_size, fd_count, retval;
+int main(void)
+{
+	int file_size, pf_size, retval;
 	int i = 0, percentage = 0;
-	void *addr;
 
 	cpu_set_t set;
-        CPU_ZERO(&set);
-        CPU_SET(CPU1, &set);
-        retval = sched_setaffinity(getpid(), sizeof(set), &set);
-        if (retval == -1) printf("[error] failed to set processor affinity.\n");
-        retval = setpriority(PRIO_PROCESS, 0, -20);
-        if (retval == -1) printf("[error] failed to set process priority.\n");
-	
+	CPU_ZERO(&set);
+	CPU_SET(CPU1, &set);
+	retval = sched_setaffinity(getpid(), sizeof(set), &set);
+	if (retval == -1)
+		printf("[error] failed to set processor affinity.\n");
+	retval = setpriority(PRIO_PROCESS, 0, -20);
+	if (retval == -1)
+		printf("[error] failed to set process priority.\n");
 
 	remove("test_file.txt");
 	remove("tmp_file.txt");
-	
+
 #ifdef BYPASS
-	//set_bypass_limit(50);
-	//set_bypass_syscall(1);
+	// set_bypass_limit(50);
+	// set_bypass_syscall(1);
 #endif
-	
-//*************************************
+
+	//*************************************
 
 #ifdef REF_TEST
 	printf("Starting reference benchmarks\n");
@@ -769,7 +1160,7 @@ int main(void){
 	fflush(fp);
 	cpu_bench();
 	fclose(fp);
-	
+
 	fp = fopen("./new_lebench_getppid.csv", "w");
 	fprintf(fp, "Sr,latency\n");
 	fflush(fp);
@@ -778,7 +1169,7 @@ int main(void){
 	printf("Reference benchmarks done\n");
 #endif
 
-//*************************************
+	//*************************************
 
 #ifdef THREAD_TEST
 	printf("Running Thread Create benchmarks\n");
@@ -787,15 +1178,15 @@ int main(void){
 
 	fprintf(fp, "Sr,LatencyParent,LatencyChild\n");
 	fflush(fp);
-	
+
 	thread_bench();
-	
+
 	printf("Running thread test 100 %% done\n");
 	fflush(stdout);
 	fclose(fp);
-#endif	
+#endif
 
-//*************************************
+	//*************************************
 
 #ifdef FORK_TEST
 	fp = fopen("./new_lebench_fork.csv", "w");
@@ -804,13 +1195,13 @@ int main(void){
 	fflush(fp);
 
 	fork_bench();
-	
+
 	printf("Running fork test 100 %% done\n");
 	fflush(stdout);
 	fclose(fp);
-#endif	
+#endif
 
-//*************************************
+	//*************************************
 
 #ifdef SEND_TEST
 	fp = fopen("./new_lebench_send.csv", "w");
@@ -821,22 +1212,24 @@ int main(void){
 	send_bench(file_size);
 	file_size = 0;
 	i = 0;
-	while(file_size < MAX_SIZE){
+	while (file_size < MAX_SIZE)
+	{
 		file_size = file_size + STEP;
 		send_bench(file_size);
 		i++;
-		if(i > CENT){
+		if (i > CENT)
+		{
 			i = 0;
-			percentage = (file_size*100)/MAX_SIZE;
+			percentage = (file_size * 100) / MAX_SIZE;
 			printf("Running send test %d %% done\n", percentage);
 			fflush(stdout);
 		}
 	}
 
 	fclose(fp);
-#endif	
+#endif
 
-//*************************************
+	//*************************************
 
 #ifdef RECV_TEST
 	fp = fopen("./new_lebench_recv.csv", "w");
@@ -847,22 +1240,24 @@ int main(void){
 	recv_bench(file_size);
 	file_size = 0;
 	i = 0;
-	while(file_size < MAX_SIZE){
+	while (file_size < MAX_SIZE)
+	{
 		file_size = file_size + STEP;
 		recv_bench(file_size);
 		i++;
-		if(i > CENT){
+		if (i > CENT)
+		{
 			i = 0;
-			percentage = (file_size*100)/MAX_SIZE;
+			percentage = (file_size * 100) / MAX_SIZE;
 			printf("Running recv test %d %% done\n", percentage);
 			fflush(stdout);
 		}
 	}
 
 	fclose(fp);
-#endif	
+#endif
 
-//*************************************
+	//*************************************
 
 #ifdef WRITE_TEST
 	fp = fopen("./new_lebench_write.csv", "w");
@@ -873,93 +1268,126 @@ int main(void){
 	write_bench(file_size);
 	file_size = 0;
 	i = 0;
-	while(file_size < MAX_SIZE){
+	while (file_size < MAX_SIZE)
+	{
 		file_size = file_size + STEP;
 		write_bench(file_size);
 		i++;
-		if(i > CENT){
+		if (i > CENT)
+		{
 			i = 0;
-			percentage = (file_size*100)/MAX_SIZE;
+			percentage = (file_size * 100) / MAX_SIZE;
 			printf("Running write test %d %% done\n", percentage);
 			fflush(stdout);
 		}
 	}
 
 	fclose(fp);
-#endif	
+#endif
 
-//*************************************
-	
+	//*************************************
+
 #ifdef READ_TEST
 	fp = fopen("./new_lebench_read.csv", "w");
-	
+
 	fprintf(fp, "Sr,Size,Latency\n");
 	fflush(fp);
 	file_size = 1;
 	read_bench(file_size);
 	file_size = 0;
 	i = 0;
-	while(file_size < MAX_SIZE){
+	while (file_size < MAX_SIZE)
+	{
 		file_size = file_size + STEP;
 		read_bench(file_size);
 		i++;
-		if(i > CENT){
+		if (i > CENT)
+		{
 			i = 0;
-			percentage = (file_size*100)/MAX_SIZE;
+			percentage = (file_size * 100) / MAX_SIZE;
 			printf("Running read test %d %% done\n", percentage);
 			fflush(stdout);
 		}
 	}
 
 	fclose(fp);
-#endif	
+#endif
 
-//*************************************
-	
+	//*************************************
+
 #ifdef PF_TEST
 	fp = fopen("./new_lebench_pagefault.csv", "w");
-	
+
 	fprintf(fp, "Sr,Size,Latency\n");
 	fflush(fp);
 	pf_size = 0;
 	i = 0;
-	while(pf_size < PF_MAX_SIZE){
+	while (pf_size < PF_MAX_SIZE)
+	{
 		pf_size = pf_size + PF_STEP;
 		pagefault_bench(pf_size);
 		i++;
-		if(i > PF_CENT){
+		if (i > PF_CENT)
+		{
 			i = 0;
-			percentage = (pf_size*100)/(PF_MAX_SIZE);
+			percentage = (pf_size * 100) / (PF_MAX_SIZE);
 			printf("Running pagefault test %d %% done\n", percentage);
 			fflush(stdout);
 		}
 	}
 
 	fclose(fp);
-#endif	
-	
-//*************************************
+#endif
+
+	//*************************************
 
 #ifdef ST_PF_TEST
 	fp = fopen("./new_lebench_stackpagefault.csv", "w");
-	
+
 	fprintf(fp, "Sr,Size,Latency\n");
 	fflush(fp);
 	pf_size = 0;
 	i = 0;
-	while(pf_size < PF_MAX_SIZE){
+	while (pf_size < PF_MAX_SIZE)
+	{
 		pf_size = pf_size + PF_STEP;
 		pagefault_bench(pf_size);
 		i++;
-		if(i > PF_CENT){
+		if (i > PF_CENT)
+		{
 			i = 0;
-			percentage = (pf_size*100)/(PF_MAX_SIZE);
+			percentage = (pf_size * 100) / (PF_MAX_SIZE);
 			printf("Running stack pagefault test %d %% done\n", percentage);
 			fflush(stdout);
 		}
 	}
 
 	fclose(fp);
-#endif	
+#endif
 
+#ifdef SELECT_TEST
+	fp = fopen("./new_lebench_select.csv", "w");
+	fprintf(fp, "Index,Size,Latency\n");
+
+	printf("Running select test small\n");
+	fflush(stdout);
+	select_bench(10, LOOP);
+
+	printf("Running select test large\n");
+	fflush(stdout);
+	select_bench(1000, LOOP);
+
+	fclose(fp);
+#endif
+
+#ifdef CTX_SW_TEST
+	fp = fopen("./new_lebench_context_switch.csv", "w");
+	fprintf(fp, "Index,Latency\n");
+
+	printf("Running context switch test\n");
+	fflush(stdout);
+	context_switch_bench();
+
+	fclose(fp);
+#endif
 }
