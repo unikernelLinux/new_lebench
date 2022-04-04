@@ -25,6 +25,8 @@
 #include <pthread.h>
 #include <errno.h>
 
+#include "LINF/sym_all.h"
+
 #define MAX_SIZE 8192
 #define PF_MAX_SIZE 100 * 4096
 #define LOOP 1000
@@ -34,8 +36,7 @@
 #define PF_CENT ((PF_MAX_SIZE / PF_STEP) / 100)
 
 #define ADDR_HINT 0x300000000000
-
-#define CPU1 14
+#define CPU1 1
 
 FILE *fp;
 
@@ -138,6 +139,9 @@ void getppid_bench(void)
 				MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
 
 	memset(runs, 0, sizeof(struct Record) * loop);
+#ifdef SYM_ELEVATE
+  sym_elevate();
+#endif
 	for (l = 0; l < loop; l++)
 	{
 		clock_gettime(CLOCK_MONOTONIC, &runs[l].start);
@@ -148,6 +152,9 @@ void getppid_bench(void)
 #endif
 		clock_gettime(CLOCK_MONOTONIC, &runs[l].end);
 	}
+#ifdef SYM_ELEVATE
+  sym_lower();
+#endif
 
 	for (l = 0; l < loop; l++)
 	{
@@ -171,11 +178,17 @@ void clock_bench(void)
 				MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
 
 	memset(runs, 0, sizeof(struct Record) * loop);
+#ifdef SYM_ELEVATE
+      sym_elevate();
+#endif
 	for (l = 0; l < loop; l++)
 	{
 		clock_gettime(CLOCK_MONOTONIC, &runs[l].start);
 		clock_gettime(CLOCK_MONOTONIC, &runs[l].end);
 	}
+#ifdef SYM_ELEVATE
+  sym_lower();
+#endif
 
 	for (l = 0; l < loop; l++)
 	{
@@ -207,12 +220,18 @@ void cpu_bench(void)
 		start = 9903290.789798798;
 		div = 3232.32;
 
+#ifdef SYM_ELEVATE
+    sym_elevate();
+#endif
 		clock_gettime(CLOCK_MONOTONIC, &runs[l].start);
 		for (i = 0; i < 500000; i++)
 		{
 			start = start / div;
 		}
 		clock_gettime(CLOCK_MONOTONIC, &runs[l].end);
+#ifdef SYM_ELEVATE
+    sym_lower();
+#endif
 	}
 
 	for (l = 0; l < loop; l++)
@@ -258,6 +277,9 @@ void write_bench(int file_size)
 	}
 
 	memset(runs, 0, sizeof(struct Record) * LOOP * 10);
+#ifdef SYM_ELEVATE
+  sym_elevate();
+#endif
 	for (l = 0; l < LOOP * 10; l++)
 	{
 		clock_gettime(CLOCK_MONOTONIC, &runs[l].start);
@@ -269,6 +291,9 @@ void write_bench(int file_size)
 		clock_gettime(CLOCK_MONOTONIC, &runs[l].end);
 	}
 
+#ifdef SYM_ELEVATE
+  sym_lower();
+#endif
 	close(fd);
 
 	for (l = 0; l < LOOP * 10; l++)
@@ -323,6 +348,11 @@ void read_bench(int file_size)
 	}
 
 	memset(runs, 0, sizeof(struct Record) * LOOP * 10);
+
+#ifdef SYM_ELEVATE
+      sym_elevate();
+#endif
+
 	for (l = 0; l < LOOP * 10; l++)
 	{
 		clock_gettime(CLOCK_MONOTONIC, &runs[l].start);
@@ -333,6 +363,9 @@ void read_bench(int file_size)
 #endif
 		clock_gettime(CLOCK_MONOTONIC, &runs[l].end);
 	}
+#ifdef SYM_ELEVATE
+  sym_lower();
+#endif
 
 	close(fd);
 
@@ -477,6 +510,9 @@ void send_bench(int msg_size)
 			// send the buffer over to child (for warm-up)
 			retval = send(fd_client, buf, msg_size, MSG_DONTWAIT);
 
+#ifdef SYM_ELEVATE
+      sym_elevate();
+#endif
 			// send buffer over to child and measure latency
 			clock_gettime(CLOCK_MONOTONIC, &runs[l].start);
 #ifdef BYPASS
@@ -485,6 +521,9 @@ void send_bench(int msg_size)
 			retval = syscall(SYS_sendto, fd_client, buf, msg_size, MSG_DONTWAIT, NULL, 0);
 #endif
 			clock_gettime(CLOCK_MONOTONIC, &runs[l].end);
+#ifdef SYM_ELEVATE
+      sym_lower();
+#endif
 
 			if (retval == -1)
 			{
@@ -612,6 +651,9 @@ void recv_bench(int msg_size)
 			// recv data from child (for warm-up)
 			retval = recv(fd_connect, buf, msg_size, MSG_DONTWAIT);
 
+#ifdef SYM_ELEVATE
+      sym_elevate();
+#endif
 			// recv data from child and measure latency
 			clock_gettime(CLOCK_MONOTONIC, &runs[l].start);
 #ifdef BYPASS
@@ -620,6 +662,11 @@ void recv_bench(int msg_size)
 			retval = syscall(SYS_recvfrom, fd_connect, buf, msg_size, MSG_DONTWAIT, NULL, NULL);
 #endif
 			clock_gettime(CLOCK_MONOTONIC, &runs[l].end);
+
+#ifdef SYM_ELEVATE
+      sym_lower();
+#endif
+
 
 			if (retval == -1)
 			{
@@ -733,16 +780,25 @@ void fork_bench(void)
 	memset(forkTime, 0, sizeof(struct timespec) * LOOP);
 	for (l = 0; l < LOOP; l++)
 	{
+#ifdef SYM_ELEVATE
+    sym_elevate();
+#endif
 		clock_gettime(CLOCK_MONOTONIC, &runs[l].start);
 		forkId = fork();
 		if (forkId == 0)
 		{
 			clock_gettime(CLOCK_MONOTONIC, &forkTime[l]);
+#ifdef SYM_ELEVATE
+      sym_lower();
+#endif
 			exit(0);
 		}
 		else if (forkId > 0)
 		{
 			clock_gettime(CLOCK_MONOTONIC, &runs[l].end);
+#ifdef SYM_ELEVATE
+      sym_lower();
+#endif
 			wait(&status);
 		}
 		else
@@ -802,6 +858,11 @@ void thread_bench(void)
 
 	memset(runs, 0, sizeof(struct Record) * LOOP);
 	memset(threads, 0, sizeof(struct timespec) * LOOP);
+
+#ifdef SYM_ELEVATE
+      sym_elevate();
+#endif
+
 	for (l = 0; l < LOOP; l++)
 	{
 		clock_gettime(CLOCK_MONOTONIC, &runs[l].start);
@@ -810,6 +871,9 @@ void thread_bench(void)
 
 		pthread_join(newThrd, NULL);
 	}
+#ifdef SYM_ELEVATE
+  sym_lower();
+#endif
 
 	for (l = 0; l < LOOP; l++)
 	{
@@ -850,6 +914,11 @@ void pagefault_bench(int file_size)
 #endif
 
 	memset(runs, 0, sizeof(struct Record) * LOOP);
+
+ #ifdef SYM_ELEVATE
+      sym_elevate();
+#endif
+
 	for (l = 0; l < LOOP; l++)
 	{
 		addr = (char *)mmap((void *)ADDR_HINT, file_size, PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
@@ -865,6 +934,10 @@ void pagefault_bench(int file_size)
 		munmap(addr, file_size);
 
 	}
+#ifdef SYM_ELEVATE
+      sym_lower();
+#endif
+
 
 	for (l = 0; l < LOOP; l++)
 	{
@@ -901,6 +974,11 @@ void stack_pagefault_bench(int file_size)
 #endif
 
 	memset(runs, 0, sizeof(struct Record) * LOOP);
+
+#ifdef SYM_ELEVATE
+      sym_elevate();
+#endif
+
 	for (l = 0; l < LOOP; l++)
 	{
 		addr = (char *)alloca(file_size * sizeof(long));
@@ -913,6 +991,9 @@ void stack_pagefault_bench(int file_size)
 		}
 		clock_gettime(CLOCK_MONOTONIC, &runs[l].end);
 	}
+#ifdef SYM_ELEVATE
+  sym_lower();
+#endif
 
 	for (l = 0; l < LOOP; l++)
 	{
@@ -972,12 +1053,20 @@ static void select_bench(size_t fd_count, int iters)
 	}
 
 	memset(runs, 0, sizeof(struct Record) * iters);
+#ifdef SYM_ELEVATE
+      sym_elevate();
+#endif
+
 	for (int i = 0; i < iters; i++)
 	{
 		clock_gettime(CLOCK_MONOTONIC, &runs[i].start);
 		syscall(SYS_select, maxFd + 1, &rfds, NULL, NULL, &timeout);
 		clock_gettime(CLOCK_MONOTONIC, &runs[i].end);
 	}
+#ifdef SYM_ELEVATE
+  sym_lower();
+#endif
+
 
 	for (size_t i = 0; i < fd_count; i++)
 	{
@@ -1052,12 +1141,20 @@ static void context_switch_bench(void)
 
 		read(fds2[0], &r, 1);
 
+#ifdef SYM_ELEVATE
+      sym_elevate();
+#endif
+
 		for (int i = 0; i < iter; i++) {
 			clock_gettime(CLOCK_MONOTONIC, &runs[i].start);
 			write(fds1[1], &w, 1);
 			read(fds2[0], &r, 1);
 			clock_gettime(CLOCK_MONOTONIC, &runs[i].end);
 		}
+#ifdef SYM_ELEVATE
+    sym_lower();
+#endif
+
 		int status;
 		wait(&status);
 
@@ -1389,5 +1486,8 @@ int main(void)
 	context_switch_bench();
 
 	fclose(fp);
+#endif
+#ifdef SYM_ELEVATE
+  sym_lower();
 #endif
 }
