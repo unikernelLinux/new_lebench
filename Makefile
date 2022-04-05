@@ -34,17 +34,26 @@ new_lebench:
 	objcopy --redefine-syms=../redef_sym_names UKL.a
 	cp UKL.a ../
 
-
-SYM_TESTS=-DREF_TEST -DTHREAD_TEST -DFORK_TEST -DSEND_TEST -DRECV_TEST -DWRITE_TEST -DREAD_TEST -DPF_TEST -DST_PF_TEST -DSELECT_TEST -DCTX_SW_TEST
+SYM_SHORTCUT=-DSYM_SHORTCUT
+SYM_TESTS=-DREF_TEST 
+# SYM_TESTS=-DREF_TEST -DTHREAD_TEST -DFORK_TEST -DSEND_TEST -DRECV_TEST -DWRITE_TEST -DREAD_TEST -DPF_TEST -DST_PF_TEST -DSELECT_TEST -DCTX_SW_TEST
 SYM_CONFIG=-UUSE_VMALLOC -UBYPASS -DUSE_MALLOC -DSYM_ELEVATE
+SYM_CONFIG_NO_ELEVATE=-UUSE_VMALLOC -UBYPASS -DUSE_MALLOC
 SYM_DEBUG=-UDEBUG
 SYM_SYS_LIBS=-pthread
 SYMBI=../Apps/libs/symlib/build/libsym.a ../Apps/libs/kallsymlib/libkallsym.a -I ../Apps/libs/symlib/include
 
 # lazy
 sym: sym_lebench
+
 sym_lebench: new_lebench.c
 	gcc $< -o new_lebench $(SYM_SYS_LIBS) $(SYM_CONFIG) $(SYM_TESTS) $(SYM_DEBUG) $(SYMBI)
+
+sym_no_elevate: new_lebench.c
+	gcc $< -o $@ $(SYM_SYS_LIBS) $(SYM_CONFIG_NO_ELEVATE) $(SYM_TESTS) $(SYM_DEBUG) $(SYMBI)
+
+sym_sc_lebench: new_lebench.c
+	gcc $< -o $@ $(SYM_SHORTCUT) $(SYM_SYS_LIBS) $(SYM_CONFIG) $(SYM_TESTS) $(SYM_DEBUG) $(SYMBI)
 
 sym_interpose_cores:
 # Core 0
@@ -59,9 +68,12 @@ sym_mv_csvs:
 	mv *.csv output
 
 sym_clean:
-	rm -rf sym_lebench new_lebench new_lebench.o
+	rm -rf sym_lebench new_lebench new_lebench.o sym_sc_lebench
 	rm -rf *.csv
 	rm -rf test_file.txt
+
+sym_sc_run:
+	sudo taskset -c 1 ./sym_sc_lebench
 
 sym_clean_all: sym_clean
 	rm -rf output

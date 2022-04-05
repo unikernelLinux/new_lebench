@@ -66,12 +66,36 @@ extern ssize_t bp_sendto(int socket, const void *message, size_t length, int fla
 extern ssize_t bp_recvfrom(int socket, void *restrict buffer, size_t length, int flags, struct sockaddr *restrict address, socklen_t *restrict address_len);
 #endif
 //---------------------------------------------------------------------
+#ifdef SYM_SHORTCUT
+/* extern ssize_t bp_write(int fd, const void *buf, size_t count); */
+/* extern ssize_t bp_read(int fd, void *buf, size_t count); */
+/* extern void   *bp_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset); */
+/* extern int     bp_munmap(void *addr, size_t length); */
+/* extern int     bp_select(int nfds, fd_set *restrict readfds, fd_set *restrict writefds, fd_set *restrict exceptfds, struct timeval *restrict timeout); */
+/* extern int     bp_poll(struct pollfd *fds, nfds_t nfds, int timeout); */
+/* extern int     bp_epoll_wait(int epfd, struct epoll_event *events, int maxevents, int timeout); */
+/* pid_t   sc_getppid(void); */
+typedef pid_t (*getppid_t)(void);
+/* extern ssize_t bp_sendto(int socket, const void *message, size_t length, int flags, const struct sockaddr *dest_addr, socklen_t dest_len); */
+/* extern ssize_t bp_recvfrom(int socket, void *restrict buffer, size_t length, int flags, struct sockaddr *restrict address, socklen_t *restrict address_len); */
+#endif
+//---------------------------------------------------------------------
 #ifdef DEBUG
 #define DEBUG 1
 #else
 #define DEBUG 0
 #endif
 //---------------------------------------------------------------------
+
+typedef void (*void_fn_ptr)(unsigned long);
+void_fn_ptr get_fn_address(char *symbol){
+  struct kallsymlib_info *info;
+
+  if (!kallsymlib_lookup(symbol, &info)) {
+    fprintf(stderr, "%s : not found\n", symbol);
+  }
+  return (void_fn_ptr) info->addr;
+}
 
 void calc_diff(struct timespec *diff, struct timespec *bigger, struct timespec *smaller)
 {
@@ -127,7 +151,13 @@ void calc_average(struct timespec *average, struct timespec *sum, int size)
 }
 
 //---------------------------------------------------------------------
+#ifdef SYM_SHORTCUT
+getppid_t sc_getppid;
+void init_sym_shortcuts(){
+    sc_getppid = (getppid_t) get_fn_address("__do_sys_getppid");
+}
 
+#endif
 void getppid_bench(void)
 {
 	struct timespec diff = {0, 0};
@@ -135,20 +165,26 @@ void getppid_bench(void)
 	int loop = 100000;
 	struct Record *runs;
 
+
 	runs = mmap(NULL, sizeof(struct Record) * loop, PROT_READ | PROT_WRITE,
 				MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
 
 	memset(runs, 0, sizeof(struct Record) * loop);
+
 #ifdef SYM_ELEVATE
   sym_elevate();
 #endif
 	for (l = 0; l < loop; l++)
 	{
 		clock_gettime(CLOCK_MONOTONIC, &runs[l].start);
+#ifdef SYM_SHORTCUT
+    sc_getppid();
+#else
 #ifdef BYPASS
 		bp_getppid();
 #else
 		syscall(SYS_getppid);
+#endif
 #endif
 		clock_gettime(CLOCK_MONOTONIC, &runs[l].end);
 	}
@@ -1218,6 +1254,7 @@ extern void set_bypass_limit(int val);
 extern void set_bypass_syscall(int val);
 #endif
 
+
 int main(void)
 {
 	int file_size, pf_size, retval;
@@ -1235,6 +1272,12 @@ int main(void)
 
 	remove("test_file.txt");
 	remove("tmp_file.txt");
+
+#ifdef SYM_SHORTCUT
+  // initializes kallsym lib
+  sym_lib_init();
+  init_sym_shortcuts();
+#endif
 
 #ifdef BYPASS
 	// set_bypass_limit(50);
