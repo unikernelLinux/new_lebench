@@ -76,8 +76,8 @@ typedef ssize_t (*read_t)(int fd, void *buf, size_t count);
 /* extern int     bp_epoll_wait(int epfd, struct epoll_event *events, int maxevents, int timeout); */
 /* pid_t   sc_getppid(void); */
 typedef pid_t (*getppid_t)(void);
-/* extern ssize_t bp_sendto(int socket, const void *message, size_t length, int flags, const struct sockaddr *dest_addr, socklen_t dest_len); */
-/* extern ssize_t bp_recvfrom(int socket, void *restrict buffer, size_t length, int flags, struct sockaddr *restrict address, socklen_t *restrict address_len); */
+typedef ssize_t (*sendto_t)(int socket, const void *message, size_t length, int flags, const struct sockaddr *dest_addr, socklen_t dest_len);
+typedef ssize_t (*recvfrom_t)(int socket, void *restrict buffer, size_t length, int flags, struct sockaddr *restrict address, socklen_t *restrict address_len);
 #endif
 //---------------------------------------------------------------------
 #ifdef DEBUG
@@ -98,18 +98,27 @@ void_fn_ptr get_fn_address(char *symbol){
   return (void_fn_ptr) info->addr;
 }
 
-getppid_t sc_getppid;
-write_t   sc_write;
-read_t    sc_read;
+getppid_t  sc_getppid;
+write_t    sc_write;
+read_t     sc_read;
+sendto_t   sc_sendto;
+recvfrom_t sc_recvfrom;
 
 void init_sym_shortcuts(){
-  sc_getppid = (getppid_t) get_fn_address("__x64_sys_getppid");
+  sc_getppid   = (getppid_t)  get_fn_address("__x64_sys_getppid");
   printf("__x64_sys_getppid at %p\n", sc_getppid);
-  sc_write   = (write_t)   get_fn_address("ksys_write");
-  printf("__x64_sys_write at %p\n", sc_write);
-  sc_read    = (read_t)    get_fn_address("ksys_read");
-  printf("__x64_sys_read at %p\n", sc_read);
 
+  sc_write     = (write_t)    get_fn_address("ksys_write");
+  printf("ksys_write at %p\n", sc_write);
+
+  sc_read      = (read_t)     get_fn_address("ksys_read");
+  printf("ksys_read at %p\n", sc_read);
+
+  sc_sendto    = (sendto_t)   get_fn_address("__sys_sendto");
+  printf("__x64_sys_sendto at %p\n", sc_sendto);
+
+  sc_recvfrom  = (recvfrom_t) get_fn_address("__sys_recvfrom");
+  printf("__x64_sys_recvfrom at %p\n", sc_recvfrom);
 }
 #endif
 
@@ -569,10 +578,14 @@ void send_bench(int msg_size)
 #endif
 			// send buffer over to child and measure latency
 			clock_gettime(CLOCK_MONOTONIC, &runs[l].start);
+#ifdef SYM_SHORTCUT
+        retval = sc_sendto(fd_client, buf, msg_size, MSG_DONTWAIT, NULL, 0);
+#else
 #ifdef BYPASS
 			retval = bp_sendto(fd_client, buf, msg_size, MSG_DONTWAIT, NULL, 0);
 #else
 			retval = syscall(SYS_sendto, fd_client, buf, msg_size, MSG_DONTWAIT, NULL, 0);
+#endif
 #endif
 			clock_gettime(CLOCK_MONOTONIC, &runs[l].end);
 #ifdef SYM_ELEVATE
@@ -710,10 +723,15 @@ void recv_bench(int msg_size)
 #endif
 			// recv data from child and measure latency
 			clock_gettime(CLOCK_MONOTONIC, &runs[l].start);
+
+#ifdef SYM_SHORTCUT
+			retval = sc_recvfrom(fd_connect, buf, msg_size, MSG_DONTWAIT, NULL, NULL);
+#else
 #ifdef BYPASS
 			retval = bp_recvfrom(fd_connect, buf, msg_size, MSG_DONTWAIT, NULL, NULL);
 #else
 			retval = syscall(SYS_recvfrom, fd_connect, buf, msg_size, MSG_DONTWAIT, NULL, NULL);
+#endif
 #endif
 			clock_gettime(CLOCK_MONOTONIC, &runs[l].end);
 
