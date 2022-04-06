@@ -67,8 +67,8 @@ extern ssize_t bp_recvfrom(int socket, void *restrict buffer, size_t length, int
 #endif
 //---------------------------------------------------------------------
 #ifdef SYM_SHORTCUT
-/* extern ssize_t bp_write(int fd, const void *buf, size_t count); */
-/* extern ssize_t bp_read(int fd, void *buf, size_t count); */
+typedef ssize_t (*write_t)(int fd, const void *buf, size_t count);
+typedef ssize_t (*read_t)(int fd, void *buf, size_t count);
 /* extern void   *bp_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset); */
 /* extern int     bp_munmap(void *addr, size_t length); */
 /* extern int     bp_select(int nfds, fd_set *restrict readfds, fd_set *restrict writefds, fd_set *restrict exceptfds, struct timeval *restrict timeout); */
@@ -87,6 +87,7 @@ typedef pid_t (*getppid_t)(void);
 #endif
 //---------------------------------------------------------------------
 
+#ifdef SYM_SHORTCUT
 typedef void (*void_fn_ptr)(unsigned long);
 void_fn_ptr get_fn_address(char *symbol){
   struct kallsymlib_info *info;
@@ -96,6 +97,22 @@ void_fn_ptr get_fn_address(char *symbol){
   }
   return (void_fn_ptr) info->addr;
 }
+
+getppid_t sc_getppid;
+write_t   sc_write;
+read_t    sc_read;
+
+void init_sym_shortcuts(){
+  sc_getppid = (getppid_t) get_fn_address("__x64_sys_getppid");
+  printf("__x64_sys_getppid at %p\n", sc_getppid);
+  sc_write   = (write_t)   get_fn_address("ksys_write");
+  printf("__x64_sys_write at %p\n", sc_write);
+  sc_read    = (read_t)    get_fn_address("ksys_read");
+  printf("__x64_sys_read at %p\n", sc_read);
+
+}
+#endif
+
 
 void calc_diff(struct timespec *diff, struct timespec *bigger, struct timespec *smaller)
 {
@@ -151,13 +168,6 @@ void calc_average(struct timespec *average, struct timespec *sum, int size)
 }
 
 //---------------------------------------------------------------------
-#ifdef SYM_SHORTCUT
-getppid_t sc_getppid;
-void init_sym_shortcuts(){
-    sc_getppid = (getppid_t) get_fn_address("__do_sys_getppid");
-}
-
-#endif
 void getppid_bench(void)
 {
 	struct timespec diff = {0, 0};
@@ -319,10 +329,14 @@ void write_bench(int file_size)
 	for (l = 0; l < LOOP * 10; l++)
 	{
 		clock_gettime(CLOCK_MONOTONIC, &runs[l].start);
+#ifdef SYM_SHORTCUT
+    sc_write(fd, buf, file_size);
+#else
 #ifdef BYPASS
 		bp_write(fd, buf, file_size);
 #else
 		syscall(SYS_write, fd, buf, file_size);
+#endif
 #endif
 		clock_gettime(CLOCK_MONOTONIC, &runs[l].end);
 	}
@@ -392,10 +406,14 @@ void read_bench(int file_size)
 	for (l = 0; l < LOOP * 10; l++)
 	{
 		clock_gettime(CLOCK_MONOTONIC, &runs[l].start);
+#ifdef SYM_SHORTCUT
+		sc_read(fd, buf, file_size);
+#else
 #ifdef BYPASS
 		bp_read(fd, buf, file_size);
 #else
 		syscall(SYS_read, fd, buf, file_size);
+#endif
 #endif
 		clock_gettime(CLOCK_MONOTONIC, &runs[l].end);
 	}
@@ -1263,6 +1281,7 @@ int main(void)
 	cpu_set_t set;
 	CPU_ZERO(&set);
 	CPU_SET(CPU1, &set);
+  /* printf("getpid() %d, sizeof(set) %d, &set %d", getpid(), sizeof(set), &set); */
 	retval = sched_setaffinity(getpid(), sizeof(set), &set);
 	if (retval == -1)
 		printf("[error] failed to set processor affinity.\n");

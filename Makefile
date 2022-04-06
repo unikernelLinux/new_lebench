@@ -35,8 +35,8 @@ new_lebench:
 	cp UKL.a ../
 
 SYM_SHORTCUT=-DSYM_SHORTCUT
-SYM_TESTS=-DREF_TEST 
-# SYM_TESTS=-DREF_TEST -DTHREAD_TEST -DFORK_TEST -DSEND_TEST -DRECV_TEST -DWRITE_TEST -DREAD_TEST -DPF_TEST -DST_PF_TEST -DSELECT_TEST -DCTX_SW_TEST
+SYM_TESTS=-DREF_TEST -DWRITE_TEST -DREAD_TEST
+# SYM_TESTS=-DREF_TEST -DTHREAD_TEST -DFORK_TEST -DSEND_TEST -DRECV_TEST  -DPF_TEST -DST_PF_TEST -DSELECT_TEST -DCTX_SW_TEST
 SYM_CONFIG=-UUSE_VMALLOC -UBYPASS -DUSE_MALLOC -DSYM_ELEVATE
 SYM_CONFIG_NO_ELEVATE=-UUSE_VMALLOC -UBYPASS -DUSE_MALLOC
 SYM_DEBUG=-UDEBUG
@@ -52,7 +52,10 @@ sym_lebench: new_lebench.c
 sym_no_elevate: new_lebench.c
 	gcc $< -o $@ $(SYM_SYS_LIBS) $(SYM_CONFIG_NO_ELEVATE) $(SYM_TESTS) $(SYM_DEBUG) $(SYMBI)
 
-sym_sc_lebench: new_lebench.c
+sym_elevate: new_lebench.c
+	gcc $< -o $@ $(SYM_SYS_LIBS) $(SYM_CONFIG) $(SYM_TESTS) $(SYM_DEBUG) $(SYMBI)
+
+sym_sc: new_lebench.c
 	gcc $< -o $@ $(SYM_SHORTCUT) $(SYM_SYS_LIBS) $(SYM_CONFIG) $(SYM_TESTS) $(SYM_DEBUG) $(SYMBI)
 
 sym_interpose_cores:
@@ -68,12 +71,41 @@ sym_mv_csvs:
 	mv *.csv output
 
 sym_clean:
-	rm -rf sym_lebench new_lebench new_lebench.o sym_sc_lebench
+	rm -rf sym_lebench new_lebench new_lebench.o sym_no_elevate sym_elevate sym_sc
 	rm -rf *.csv
 	rm -rf test_file.txt
 
-sym_sc_run:
-	sudo taskset -c 1 ./sym_sc_lebench
+sym_all:
+	make sym_no_elevate
+	make sym_elevate
+	make sym_sc
+
+sym_run_no_elevate:
+	make sym_clean
+	make sym_no_elevate
+	sudo taskset -c 0,1 ./sym_no_elevate
+	make sym_mv_csvs
+	mv output no_elevate
+
+sym_run_elevate:
+	make sym_clean
+	make sym_elevate
+	sudo taskset -c 1 ./sym_elevate
+	make sym_mv_csvs
+	mv output elevate
+
+sym_run_sc:
+	make sym_clean
+	make sym_sc
+	sudo taskset -c 1 ./sym_sc
+	make sym_mv_csvs
+	mv output sc
+
+sym_run_all:
+	make sym_run_no_elevate
+	make sym_run_elevate
+	make sym_run_sc
+
 
 sym_clean_all: sym_clean
-	rm -rf output
+	rm -rf elevate no_elevate sc
