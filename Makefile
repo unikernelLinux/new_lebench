@@ -82,14 +82,14 @@ sym_all:
 sym_run_no_elevate:
 	make sym_clean
 	make sym_no_elevate
-	sudo taskset -c 0,1 ./sym_no_elevate
+	sudo ./sym_no_elevate
 	make sym_mv_csvs
 	mv output no_elevate
 
 sym_run_elevate:
 	make sym_clean
 	make sym_elevate
-	sudo taskset -c 1 ./sym_elevate
+	sudo ./sym_elevate
 	make sym_mv_csvs
 	mv output elevate
 
