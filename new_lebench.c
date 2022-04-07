@@ -1075,6 +1075,89 @@ static void poll_bench(size_t fd_count, int iters)
 	return;
 }
 
+static void epoll_bench(size_t fd_count, int iters)
+{
+	int retval;
+
+	int fds[fd_count];
+	struct Record *runs;
+
+
+	runs = mmap(NULL, sizeof(struct Record) * iters, PROT_READ | PROT_WRITE,
+								MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+	memset(runs, 0, sizeof(struct Record) * iters);
+
+	for (int i = 0; i < iters; i++)
+	{
+
+		int epfd = epoll_create(fd_count);
+
+		for (int i = 0; i < fd_count; i++)
+		{
+			char name[10];
+			name[0] = 'f';
+			name[1] = 'i';
+			name[2] = 'l';
+			name[3] = 'e';
+			int j = i;
+			int index = 4;
+			while (j > 0)
+			{
+				name[index] = 48 + j % 10;
+				j = j / 10;
+				index++;
+			}
+			name[index] = '\0';
+			int fd = socket(AF_INET, SOCK_STREAM, 0);
+			if (fd < 0)
+				printf("[error] invalid fd in epoll: %d\n", fd);
+
+			struct epoll_event event;
+			event.events = EPOLLIN;
+			event.data.fd = fd;
+
+			retval = epoll_ctl(epfd, EPOLL_CTL_ADD, fd, &event);
+			if (retval == -1)
+			{
+				printf("[error] epoll_ctl failed.\n");
+			}
+
+			fds[i] = fd;
+		}
+
+		struct epoll_event *events = (struct epoll_event *)malloc(fd_count * sizeof(struct epoll_event));
+		clock_gettime(CLOCK_MONOTONIC, &runs[i].start);
+		retval = epoll_wait(epfd, events, fd_count, 0);
+		clock_gettime(CLOCK_MONOTONIC, &runs[i].end);
+
+		free(events);
+		if (retval != fd_count)
+		{
+			printf("[error] epoll return unexpected: %d\n", retval);
+		}
+
+		retval = close(epfd);
+		if (retval == -1)
+			printf("[error] close epfd failed in epoll test %d.\n", epfd);
+		for (int i = 0; i < fd_count; i++)
+		{
+			retval = close(fds[i]);
+			if (retval == -1)
+				printf("[error] close failed in epoll test %d.\n", fds[i]);
+		}
+	}
+
+	for (int i = 0; i < iters; i++)
+	{
+		struct timespec diff;
+		calc_diff(&diff, &runs[i].end, &runs[i].start);
+		fprintf(fp, "%d,%ld,%ld.%09ld\n", i, fd_count, diff.tv_sec, diff.tv_nsec);
+	}
+	fflush(fp);
+
+	return;
+}
+
 static void context_switch_bench(void)
 {
 	int iter = 1000;
@@ -1563,6 +1646,21 @@ int main(void)
 	printf("Running poll test large\n");
 	fflush(stdout);
 	poll_bench(1000, LOOP);
+
+	fclose(fp);
+#endif
+
+#ifdef EPOLL_TEST
+	fp = fopen("./new_lebench_epoll.csv", "w");
+	fprintf(fp, "Index,Size,Latency\n");
+
+	printf("Running epoll test small\n");
+	fflush(stdout);
+	epoll_bench(10, LOOP);
+
+	printf("Running epoll test large\n");
+	fflush(stdout);
+	epoll_bench(1000, LOOP);
 
 	fclose(fp);
 #endif
