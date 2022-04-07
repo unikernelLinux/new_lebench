@@ -1151,6 +1151,42 @@ static void mmap_bench(size_t file_size)
 	return;
 }
 
+static void munmap_bench(size_t file_size)
+{
+	int i;
+	struct Record *runs;
+	int fd = open("test_file.txt", O_RDWR);
+
+	if (fd < 0)
+		printf("invalid fd%d\n", fd);
+
+	runs = mmap(NULL, sizeof(struct Record) * LOOP, PROT_READ | PROT_WRITE,
+					MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+	memset(runs, 0, sizeof(struct Record) * LOOP);
+
+	for (i = 0; i < LOOP; i++)
+	{
+		void *addr = (void *)syscall(SYS_mmap, NULL, file_size, PROT_WRITE, MAP_PRIVATE, fd, 0);
+		for (int i = 0; i < file_size; i++) {
+			((char *)addr)[i] = 'b';
+		}
+		clock_gettime(CLOCK_MONOTONIC, &runs[i].start);
+		syscall(SYS_munmap, addr, file_size);
+		clock_gettime(CLOCK_MONOTONIC,&runs[i].end);
+	}
+	close(fd);
+
+	struct timespec diff;
+	for (i = 0; i < LOOP; i++)
+	{
+		calc_diff(&diff, &runs[i].end, &runs[i].start);
+		fprintf(fp, "%d,%ld,%ld.%09ld\n", i, runs[i].size, diff.tv_sec, diff.tv_nsec);
+	}
+
+	munmap(runs, sizeof(struct Record) * LOOP);
+	return;
+}
+
 #ifdef BYPASS
 extern void set_bypass_limit(int val);
 extern void set_bypass_syscall(int val);
@@ -1358,6 +1394,21 @@ int main(void)
 	{
 		file_size += STEP;
 		mmap_bench(file_size);
+	}
+
+	fclose(fp);
+#endif
+
+#ifdef MUNMAP_TEST
+	fp = fopen("./new_lebench_munmap.csv", "w");
+
+	fprintf(fp, "Sr,Size,Latency\n");
+	fflush(fp);
+	file_size = 0;
+	while(file_size < MAX_SIZE)
+	{
+		file_size += STEP;
+		munmap_bench(file_size);
 	}
 
 	fclose(fp);
