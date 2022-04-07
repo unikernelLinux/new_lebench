@@ -1004,6 +1004,77 @@ static void select_bench(size_t fd_count, int iters)
 #endif
 }
 
+static void poll_bench(size_t fd_count, int iters)
+{
+	int retval;
+
+	struct Record *runs;
+
+	int fds[fd_count];
+	struct pollfd pfds[fd_count];
+
+	runs = mmap(NULL, sizeof(struct Record) * iters, PROT_READ | PROT_WRITE,
+								MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+	memset(runs, 0, sizeof(struct Record) * iters);
+
+	for (int i = 0; i < iters; i++)
+	{
+		memset(pfds, 0, sizeof(pfds));
+
+		for (int i = 0; i < fd_count; i++)
+		{
+			char name[10];
+			name[0] = 'f';
+			name[1] = 'i';
+			name[2] = 'l';
+			name[3] = 'e';
+			int j = i;
+			int index = 4;
+			while (j > 0)
+			{
+				name[index] = 48 + j % 10;
+				j = j / 10;
+				index++;
+			}
+			name[index] = '\0';
+			int fd = socket(AF_INET, SOCK_STREAM, 0);
+			if (fd < 0)
+				printf("invalid fd in poll: %d\n", fd);
+
+			pfds[i].fd = fd;
+			pfds[i].events = POLLIN;
+
+			fds[i] = fd;
+		}
+
+		clock_gettime(CLOCK_MONOTONIC, &runs[i].start);
+		retval = syscall(SYS_poll, pfds, fd_count, 0);
+		clock_gettime(CLOCK_MONOTONIC, &runs[i].end);
+
+		if (retval != fd_count)
+		{
+			printf("[error] poll return unexpected: %d\n", retval);
+		}
+
+		for (int i = 0; i < fd_count; i++)
+		{
+			retval = close(fds[i]);
+			if (retval == -1)
+				printf("[error] close failed in poll test %d.\n", fds[i]);
+		}
+	}
+
+	for (int i = 0; i < iters; i++)
+	{
+		struct timespec diff;
+		calc_diff(&diff, &runs[i].end, &runs[i].start);
+		fprintf(fp, "%d,%ld,%ld.%09ld\n", i, fd_count, diff.tv_sec, diff.tv_nsec);
+	}
+	fflush(fp);
+
+	return;
+}
+
 static void context_switch_bench(void)
 {
 	int iter = 1000;
@@ -1477,6 +1548,21 @@ int main(void)
 	printf("Running select test large\n");
 	fflush(stdout);
 	select_bench(1000, LOOP);
+
+	fclose(fp);
+#endif
+
+#ifdef POLL_TEST
+	fp = fopen("./new_lebench_poll.csv", "w");
+	fprintf(fp, "Index,Size,Latency\n");
+
+	printf("Running poll test small\n");
+	fflush(stdout);
+	poll_bench(10, LOOP);
+
+	printf("Running poll test large\n");
+	fflush(stdout);
+	poll_bench(1000, LOOP);
 
 	fclose(fp);
 #endif
