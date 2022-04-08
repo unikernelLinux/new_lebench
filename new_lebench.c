@@ -933,6 +933,58 @@ void stack_pagefault_bench(int file_size)
 	return;
 }
 
+static void fault_around_bench(int file_size)
+{
+	struct timespec diff = {0, 0};
+	struct Record *runs;
+	int l, i;
+	char *addr;
+
+#if defined(USE_VMALLOC)
+	runs = (struct Record *)vmalloc(sizeof(struct Record) * LOOP);
+#elif defined(USE_MALLOC)
+	runs = (struct Record *)malloc(sizeof(struct Record) * LOOP);
+#else
+	runs = (struct Record *)mmap(NULL, sizeof(struct Record) * LOOP, PROT_READ | PROT_WRITE,
+								MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+#endif
+
+	int fd = open("test_file.txt", O_RDONLY);
+
+	memset(runs, 0, sizeof(struct Record) * LOOP);
+	for (l = 0; l < LOOP; l++)
+	{
+		addr = (char *)mmap((void *)ADDR_HINT, file_size, PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+		i = 0;
+		clock_gettime(CLOCK_MONOTONIC, &runs[l].start);
+		char a = *addr;
+		clock_gettime(CLOCK_MONOTONIC, &runs[l].end);
+
+		munmap(addr, file_size);
+
+	}
+
+	close(fd);
+
+	for (l = 0; l < LOOP; l++)
+	{
+		calc_diff(&diff, &runs[l].end, &runs[l].start);
+		fprintf(fp, "%d,%d,%ld.%09ld\n", l, file_size, diff.tv_sec, diff.tv_nsec);
+
+	}
+	fflush(fp);
+
+#if defined(USE_VMALLOC)
+	vfree(runs);
+#elif defined(USE_MALLOC)
+	free(runs);
+#else
+	munmap(runs, sizeof(struct Record) * LOOP);
+#endif
+
+	return;
+}
+
 static void select_bench(size_t fd_count, int iters)
 {
 	struct Record *runs;
@@ -1002,6 +1054,160 @@ static void select_bench(size_t fd_count, int iters)
 	munmap(fds, sizeof(int) * fd_count);
 	munmap(runs, sizeof(struct Record) * iters);
 #endif
+}
+
+static void poll_bench(size_t fd_count, int iters)
+{
+	int retval;
+
+	struct Record *runs;
+
+	int fds[fd_count];
+	struct pollfd pfds[fd_count];
+
+	runs = mmap(NULL, sizeof(struct Record) * iters, PROT_READ | PROT_WRITE,
+								MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+	memset(runs, 0, sizeof(struct Record) * iters);
+
+	for (int i = 0; i < iters; i++)
+	{
+		memset(pfds, 0, sizeof(pfds));
+
+		for (int i = 0; i < fd_count; i++)
+		{
+			char name[10];
+			name[0] = 'f';
+			name[1] = 'i';
+			name[2] = 'l';
+			name[3] = 'e';
+			int j = i;
+			int index = 4;
+			while (j > 0)
+			{
+				name[index] = 48 + j % 10;
+				j = j / 10;
+				index++;
+			}
+			name[index] = '\0';
+			int fd = socket(AF_INET, SOCK_STREAM, 0);
+			if (fd < 0)
+				printf("invalid fd in poll: %d\n", fd);
+
+			pfds[i].fd = fd;
+			pfds[i].events = POLLIN;
+
+			fds[i] = fd;
+		}
+
+		clock_gettime(CLOCK_MONOTONIC, &runs[i].start);
+		retval = syscall(SYS_poll, pfds, fd_count, 0);
+		clock_gettime(CLOCK_MONOTONIC, &runs[i].end);
+
+		if (retval != fd_count)
+		{
+			printf("[error] poll return unexpected: %d\n", retval);
+		}
+
+		for (int i = 0; i < fd_count; i++)
+		{
+			retval = close(fds[i]);
+			if (retval == -1)
+				printf("[error] close failed in poll test %d.\n", fds[i]);
+		}
+	}
+
+	for (int i = 0; i < iters; i++)
+	{
+		struct timespec diff;
+		calc_diff(&diff, &runs[i].end, &runs[i].start);
+		fprintf(fp, "%d,%ld,%ld.%09ld\n", i, fd_count, diff.tv_sec, diff.tv_nsec);
+	}
+	fflush(fp);
+
+	return;
+}
+
+static void epoll_bench(size_t fd_count, int iters)
+{
+	int retval;
+
+	int fds[fd_count];
+	struct Record *runs;
+
+
+	runs = mmap(NULL, sizeof(struct Record) * iters, PROT_READ | PROT_WRITE,
+								MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+	memset(runs, 0, sizeof(struct Record) * iters);
+
+	for (int i = 0; i < iters; i++)
+	{
+
+		int epfd = epoll_create(fd_count);
+
+		for (int i = 0; i < fd_count; i++)
+		{
+			char name[10];
+			name[0] = 'f';
+			name[1] = 'i';
+			name[2] = 'l';
+			name[3] = 'e';
+			int j = i;
+			int index = 4;
+			while (j > 0)
+			{
+				name[index] = 48 + j % 10;
+				j = j / 10;
+				index++;
+			}
+			name[index] = '\0';
+			int fd = socket(AF_INET, SOCK_STREAM, 0);
+			if (fd < 0)
+				printf("[error] invalid fd in epoll: %d\n", fd);
+
+			struct epoll_event event;
+			event.events = EPOLLIN;
+			event.data.fd = fd;
+
+			retval = epoll_ctl(epfd, EPOLL_CTL_ADD, fd, &event);
+			if (retval == -1)
+			{
+				printf("[error] epoll_ctl failed.\n");
+			}
+
+			fds[i] = fd;
+		}
+
+		struct epoll_event *events = (struct epoll_event *)malloc(fd_count * sizeof(struct epoll_event));
+		clock_gettime(CLOCK_MONOTONIC, &runs[i].start);
+		retval = epoll_wait(epfd, events, fd_count, 0);
+		clock_gettime(CLOCK_MONOTONIC, &runs[i].end);
+
+		free(events);
+		if (retval != fd_count)
+		{
+			printf("[error] epoll return unexpected: %d\n", retval);
+		}
+
+		retval = close(epfd);
+		if (retval == -1)
+			printf("[error] close epfd failed in epoll test %d.\n", epfd);
+		for (int i = 0; i < fd_count; i++)
+		{
+			retval = close(fds[i]);
+			if (retval == -1)
+				printf("[error] close failed in epoll test %d.\n", fds[i]);
+		}
+	}
+
+	for (int i = 0; i < iters; i++)
+	{
+		struct timespec diff;
+		calc_diff(&diff, &runs[i].end, &runs[i].start);
+		fprintf(fp, "%d,%ld,%ld.%09ld\n", i, fd_count, diff.tv_sec, diff.tv_nsec);
+	}
+	fflush(fp);
+
+	return;
 }
 
 static void context_switch_bench(void)
@@ -1115,6 +1321,77 @@ static void context_switch_bench(void)
 	munmap(runs, sizeof(struct Record) * iter);
 }
 //---------------------------------------------------------------------
+
+static void mmap_bench(size_t file_size)
+{
+	struct Record *runs;
+	int i;
+
+	runs = mmap(NULL, sizeof(struct Record) * LOOP, PROT_READ | PROT_WRITE,
+					MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+	memset(runs, 0, sizeof(struct Record) * LOOP);
+
+	int fd = open("test_file.txt", O_RDONLY);
+	if (fd < 0)
+		printf("invalid fd%d\n", fd);
+
+	for (i = 0; i < LOOP; i++)
+	{
+		runs[i].size = file_size;
+		clock_gettime(CLOCK_MONOTONIC, &runs[i].start);
+		void *addr = (void *)syscall(SYS_mmap, NULL, file_size, PROT_READ, MAP_PRIVATE, fd, 0);
+		clock_gettime(CLOCK_MONOTONIC,&runs[i].end);
+
+		syscall(SYS_munmap, addr, file_size);
+	}
+	close(fd);
+
+	struct timespec diff;
+	for (i = 0; i < LOOP; i++)
+	{
+		calc_diff(&diff, &runs[i].end, &runs[i].start);
+		fprintf(fp, "%d,%ld,%ld.%09ld\n", i, runs[i].size, diff.tv_sec, diff.tv_nsec);
+	}
+
+	munmap(runs, sizeof(struct Record) * LOOP);
+	return;
+}
+
+static void munmap_bench(size_t file_size)
+{
+	int i;
+	struct Record *runs;
+	int fd = open("test_file.txt", O_RDWR);
+
+	if (fd < 0)
+		printf("invalid fd%d\n", fd);
+
+	runs = mmap(NULL, sizeof(struct Record) * LOOP, PROT_READ | PROT_WRITE,
+					MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+	memset(runs, 0, sizeof(struct Record) * LOOP);
+
+	for (i = 0; i < LOOP; i++)
+	{
+		void *addr = (void *)syscall(SYS_mmap, NULL, file_size, PROT_WRITE, MAP_PRIVATE, fd, 0);
+		for (int i = 0; i < file_size; i++) {
+			((char *)addr)[i] = 'b';
+		}
+		clock_gettime(CLOCK_MONOTONIC, &runs[i].start);
+		syscall(SYS_munmap, addr, file_size);
+		clock_gettime(CLOCK_MONOTONIC,&runs[i].end);
+	}
+	close(fd);
+
+	struct timespec diff;
+	for (i = 0; i < LOOP; i++)
+	{
+		calc_diff(&diff, &runs[i].end, &runs[i].start);
+		fprintf(fp, "%d,%ld,%ld.%09ld\n", i, runs[i].size, diff.tv_sec, diff.tv_nsec);
+	}
+
+	munmap(runs, sizeof(struct Record) * LOOP);
+	return;
+}
 
 #ifdef BYPASS
 extern void set_bypass_limit(int val);
@@ -1313,6 +1590,36 @@ int main(void)
 	fclose(fp);
 #endif
 
+#ifdef MMAP_TEST
+	fp = fopen("./new_lebench_mmap.csv", "w");
+
+	fprintf(fp, "Sr,Size,Latency\n");
+	fflush(fp);
+	file_size = 0;
+	while(file_size < MAX_SIZE)
+	{
+		file_size += STEP;
+		mmap_bench(file_size);
+	}
+
+	fclose(fp);
+#endif
+
+#ifdef MUNMAP_TEST
+	fp = fopen("./new_lebench_munmap.csv", "w");
+
+	fprintf(fp, "Sr,Size,Latency\n");
+	fflush(fp);
+	file_size = 0;
+	while(file_size < MAX_SIZE)
+	{
+		file_size += STEP;
+		munmap_bench(file_size);
+	}
+
+	fclose(fp);
+#endif
+
 	//*************************************
 
 #ifdef PF_TEST
@@ -1332,6 +1639,30 @@ int main(void)
 			i = 0;
 			percentage = (pf_size * 100) / (PF_MAX_SIZE);
 			printf("Running pagefault test %d %% done\n", percentage);
+			fflush(stdout);
+		}
+	}
+
+	fclose(fp);
+#endif
+
+#ifdef FAULT_AROUND_TEST
+	fp = fopen("./new_lebench_fault_around.csv", "w");
+
+	fprintf(fp, "Sr,Size,Latency\n");
+	fflush(fp);
+	pf_size = 0;
+	i = 0;
+	while (pf_size < PF_MAX_SIZE)
+	{
+		pf_size = pf_size + PF_STEP;
+		fault_around_bench(pf_size);
+		i++;
+		if (i > PF_CENT)
+		{
+			i = 0;
+			percentage = (pf_size * 100) / (PF_MAX_SIZE);
+			printf("Running fault around test %d %% done\n", percentage);
 			fflush(stdout);
 		}
 	}
@@ -1376,6 +1707,36 @@ int main(void)
 	printf("Running select test large\n");
 	fflush(stdout);
 	select_bench(1000, LOOP);
+
+	fclose(fp);
+#endif
+
+#ifdef POLL_TEST
+	fp = fopen("./new_lebench_poll.csv", "w");
+	fprintf(fp, "Index,Size,Latency\n");
+
+	printf("Running poll test small\n");
+	fflush(stdout);
+	poll_bench(10, LOOP);
+
+	printf("Running poll test large\n");
+	fflush(stdout);
+	poll_bench(1000, LOOP);
+
+	fclose(fp);
+#endif
+
+#ifdef EPOLL_TEST
+	fp = fopen("./new_lebench_epoll.csv", "w");
+	fprintf(fp, "Index,Size,Latency\n");
+
+	printf("Running epoll test small\n");
+	fflush(stdout);
+	epoll_bench(10, LOOP);
+
+	printf("Running epoll test large\n");
+	fflush(stdout);
+	epoll_bench(1000, LOOP);
 
 	fclose(fp);
 #endif
