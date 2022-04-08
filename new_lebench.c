@@ -933,6 +933,58 @@ void stack_pagefault_bench(int file_size)
 	return;
 }
 
+static void fault_around_bench(int file_size)
+{
+	struct timespec diff = {0, 0};
+	struct Record *runs;
+	int l, i;
+	char *addr;
+
+#if defined(USE_VMALLOC)
+	runs = (struct Record *)vmalloc(sizeof(struct Record) * LOOP);
+#elif defined(USE_MALLOC)
+	runs = (struct Record *)malloc(sizeof(struct Record) * LOOP);
+#else
+	runs = (struct Record *)mmap(NULL, sizeof(struct Record) * LOOP, PROT_READ | PROT_WRITE,
+								MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+#endif
+
+	int fd = open("test_file.txt", O_RDONLY);
+
+	memset(runs, 0, sizeof(struct Record) * LOOP);
+	for (l = 0; l < LOOP; l++)
+	{
+		addr = (char *)mmap((void *)ADDR_HINT, file_size, PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+		i = 0;
+		clock_gettime(CLOCK_MONOTONIC, &runs[l].start);
+		char a = *addr;
+		clock_gettime(CLOCK_MONOTONIC, &runs[l].end);
+
+		munmap(addr, file_size);
+
+	}
+
+	close(fd);
+
+	for (l = 0; l < LOOP; l++)
+	{
+		calc_diff(&diff, &runs[l].end, &runs[l].start);
+		fprintf(fp, "%d,%d,%ld.%09ld\n", l, file_size, diff.tv_sec, diff.tv_nsec);
+
+	}
+	fflush(fp);
+
+#if defined(USE_VMALLOC)
+	vfree(runs);
+#elif defined(USE_MALLOC)
+	free(runs);
+#else
+	munmap(runs, sizeof(struct Record) * LOOP);
+#endif
+
+	return;
+}
+
 static void select_bench(size_t fd_count, int iters)
 {
 	struct Record *runs;
@@ -1587,6 +1639,30 @@ int main(void)
 			i = 0;
 			percentage = (pf_size * 100) / (PF_MAX_SIZE);
 			printf("Running pagefault test %d %% done\n", percentage);
+			fflush(stdout);
+		}
+	}
+
+	fclose(fp);
+#endif
+
+#ifdef FAULT_AROUND_TEST
+	fp = fopen("./new_lebench_fault_around.csv", "w");
+
+	fprintf(fp, "Sr,Size,Latency\n");
+	fflush(fp);
+	pf_size = 0;
+	i = 0;
+	while (pf_size < PF_MAX_SIZE)
+	{
+		pf_size = pf_size + PF_STEP;
+		fault_around_bench(pf_size);
+		i++;
+		if (i > PF_CENT)
+		{
+			i = 0;
+			percentage = (pf_size * 100) / (PF_MAX_SIZE);
+			printf("Running fault around test %d %% done\n", percentage);
 			fflush(stdout);
 		}
 	}
