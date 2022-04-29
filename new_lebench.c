@@ -71,7 +71,7 @@ typedef ssize_t (*write_t)(int fd, const void *buf, size_t count);
 typedef ssize_t (*read_t)(int fd, void *buf, size_t count);
 typedef void *(*mmap_t)(void *addr, size_t length, int prot, int flags, int fd, off_t offset);
 typedef void (*munmap_t)(void *addr, size_t length);
-/* extern int     bp_select(int nfds, fd_set *restrict readfds, fd_set *restrict writefds, fd_set *restrict exceptfds, struct timeval *restrict timeout); */
+typedef int (select_t)(int nfds, fd_set *restrict readfds, fd_set *restrict writefds, fd_set *restrict exceptfds, struct timeval *restrict timeout);
 /* extern int     bp_poll(struct pollfd *fds, nfds_t nfds, int timeout); */
 /* extern int     bp_epoll_wait(int epfd, struct epoll_event *events, int maxevents, int timeout); */
 typedef pid_t (*getppid_t)(void);
@@ -104,6 +104,7 @@ write_t    sc_write;
 read_t     sc_read;
 sendto_t   sc_sendto;
 recvfrom_t sc_recvfrom;
+select_t   sc_select;
 
 void init_sym_shortcuts(){
   sc_getppid   = (getppid_t)  get_fn_address("__x64_sys_getppid");
@@ -126,6 +127,9 @@ void init_sym_shortcuts(){
 
   sc_munmap = (munmap_t) get_fn_address("__x64_sys_munmap");
   printf("__x64_sys_munmap at %p\n", sc_munmap);
+
+  sc_select = (select_t) get_fn_address("__x64_sys_select");
+  printf("__x64_sys_select at %p\n", sc_select);
 }
 #endif
 
@@ -1191,7 +1195,11 @@ static void select_bench(size_t fd_count, int iters)
 	for (int i = 0; i < iters; i++)
 	{
 		clock_gettime(CLOCK_MONOTONIC, &runs[i].start);
+#ifdef SYM_SHORTCUT
+		sc_select(maxFd + 1, &rfds, NULL, NULL, &timeout);
+#else
 		syscall(SYS_select, maxFd + 1, &rfds, NULL, NULL, &timeout);
+#endif
 		clock_gettime(CLOCK_MONOTONIC, &runs[i].end);
 	}
 #ifdef SYM_ELEVATE
