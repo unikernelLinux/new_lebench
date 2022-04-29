@@ -73,7 +73,7 @@ typedef void *(*mmap_t)(void *addr, size_t length, int prot, int flags, int fd, 
 typedef void (*munmap_t)(void *addr, size_t length);
 typedef int (select_t)(int nfds, fd_set *restrict readfds, fd_set *restrict writefds, fd_set *restrict exceptfds, struct timeval *restrict timeout);
 typedef int (poll_t)(struct pollfd *fds, nfds_t nfds, int timeout);
-/* extern int     bp_epoll_wait(int epfd, struct epoll_event *events, int maxevents, int timeout); */
+typedef int (epoll_t)(int epfd, struct epoll_event *events, int maxevents, int timeout);
 typedef pid_t (*getppid_t)(void);
 typedef ssize_t (*sendto_t)(int socket, const void *message, size_t length, int flags, const struct sockaddr *dest_addr, socklen_t dest_len);
 typedef ssize_t (*recvfrom_t)(int socket, void *restrict buffer, size_t length, int flags, struct sockaddr *restrict address, socklen_t *restrict address_len);
@@ -106,6 +106,7 @@ sendto_t   sc_sendto;
 recvfrom_t sc_recvfrom;
 select_t   sc_select;
 poll_t     sc_poll;
+epoll_t    sc_epoll;
 
 void init_sym_shortcuts(){
   sc_getppid   = (getppid_t)  get_fn_address("__x64_sys_getppid");
@@ -134,6 +135,9 @@ void init_sym_shortcuts(){
 
   sc_poll = (poll_t) get_fn_address("__x64_sys_poll");
   printf("__x64_sys_poll at %p\n", sc_poll);
+
+  sc_epoll = (epoll_t) get_fn_address("__x64_sys_epoll_wait");
+  printf("__x64_sys_epoll_wait at %p\n", sc_epoll);
 }
 #endif
 
@@ -1331,6 +1335,10 @@ static void epoll_bench(size_t fd_count, int iters)
 								MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
 	memset(runs, 0, sizeof(struct Record) * iters);
 
+#ifdef SYM_ELEVATE
+      sym_elevate();
+#endif
+
 	for (int i = 0; i < iters; i++)
 	{
 
@@ -1371,7 +1379,11 @@ static void epoll_bench(size_t fd_count, int iters)
 
 		struct epoll_event *events = (struct epoll_event *)malloc(fd_count * sizeof(struct epoll_event));
 		clock_gettime(CLOCK_MONOTONIC, &runs[i].start);
+#ifdef SYM_SHORTCUT
+		retvat = sc_epoll(epfd, events, fd_count, 0);
+#else
 		retval = epoll_wait(epfd, events, fd_count, 0);
+#endif
 		clock_gettime(CLOCK_MONOTONIC, &runs[i].end);
 
 		free(events);
@@ -1390,6 +1402,10 @@ static void epoll_bench(size_t fd_count, int iters)
 				printf("[error] close failed in epoll test %d.\n", fds[i]);
 		}
 	}
+
+#ifdef SYM_ELEVATE
+      sym_lower();
+#endif
 
 	for (int i = 0; i < iters; i++)
 	{
