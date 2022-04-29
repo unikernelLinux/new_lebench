@@ -71,9 +71,9 @@ typedef ssize_t (*write_t)(int fd, const void *buf, size_t count);
 typedef ssize_t (*read_t)(int fd, void *buf, size_t count);
 typedef void *(*mmap_t)(void *addr, size_t length, int prot, int flags, int fd, off_t offset);
 typedef void (*munmap_t)(void *addr, size_t length);
-typedef int (select_t)(int nfds, fd_set *restrict readfds, fd_set *restrict writefds, fd_set *restrict exceptfds, struct timeval *restrict timeout);
-typedef int (poll_t)(struct pollfd *fds, nfds_t nfds, int timeout);
-typedef int (epoll_t)(int epfd, struct epoll_event *events, int maxevents, int timeout);
+typedef int (*select_t)(int nfds, fd_set *restrict readfds, fd_set *restrict writefds, fd_set *restrict exceptfds, struct timeval *restrict timeout);
+typedef int (*poll_t)(struct pollfd *fds, nfds_t nfds, int timeout);
+typedef int (*epoll_t)(int epfd, struct epoll_event *events, int maxevents, int timeout);
 typedef pid_t (*getppid_t)(void);
 typedef ssize_t (*sendto_t)(int socket, const void *message, size_t length, int flags, const struct sockaddr *dest_addr, socklen_t dest_len);
 typedef ssize_t (*recvfrom_t)(int socket, void *restrict buffer, size_t length, int flags, struct sockaddr *restrict address, socklen_t *restrict address_len);
@@ -1380,7 +1380,7 @@ static void epoll_bench(size_t fd_count, int iters)
 		struct epoll_event *events = (struct epoll_event *)malloc(fd_count * sizeof(struct epoll_event));
 		clock_gettime(CLOCK_MONOTONIC, &runs[i].start);
 #ifdef SYM_SHORTCUT
-		retvat = sc_epoll(epfd, events, fd_count, 0);
+		retval = sc_epoll(epfd, events, fd_count, 0);
 #else
 		retval = epoll_wait(epfd, events, fd_count, 0);
 #endif
@@ -1611,7 +1611,7 @@ static void munmap_bench(size_t file_size)
 		}
 		clock_gettime(CLOCK_MONOTONIC, &runs[i].start);
 #ifdef SYM_SHORTCUT
-		sc_munmap(addr, filesize);
+		sc_munmap(addr, file_size);
 #else
 		syscall(SYS_munmap, addr, file_size);
 #endif
