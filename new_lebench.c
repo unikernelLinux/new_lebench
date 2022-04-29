@@ -72,7 +72,7 @@ typedef ssize_t (*read_t)(int fd, void *buf, size_t count);
 typedef void *(*mmap_t)(void *addr, size_t length, int prot, int flags, int fd, off_t offset);
 typedef void (*munmap_t)(void *addr, size_t length);
 typedef int (select_t)(int nfds, fd_set *restrict readfds, fd_set *restrict writefds, fd_set *restrict exceptfds, struct timeval *restrict timeout);
-/* extern int     bp_poll(struct pollfd *fds, nfds_t nfds, int timeout); */
+typedef int (poll_t)(struct pollfd *fds, nfds_t nfds, int timeout);
 /* extern int     bp_epoll_wait(int epfd, struct epoll_event *events, int maxevents, int timeout); */
 typedef pid_t (*getppid_t)(void);
 typedef ssize_t (*sendto_t)(int socket, const void *message, size_t length, int flags, const struct sockaddr *dest_addr, socklen_t dest_len);
@@ -105,6 +105,7 @@ read_t     sc_read;
 sendto_t   sc_sendto;
 recvfrom_t sc_recvfrom;
 select_t   sc_select;
+poll_t     sc_poll;
 
 void init_sym_shortcuts(){
   sc_getppid   = (getppid_t)  get_fn_address("__x64_sys_getppid");
@@ -130,6 +131,9 @@ void init_sym_shortcuts(){
 
   sc_select = (select_t) get_fn_address("__x64_sys_select");
   printf("__x64_sys_select at %p\n", sc_select);
+
+  sc_poll = (poll_t) get_fn_address("__x64_sys_poll");
+  printf("__x64_sys_poll at %p\n", sc_poll);
 }
 #endif
 
@@ -1245,6 +1249,10 @@ static void poll_bench(size_t fd_count, int iters)
 								MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
 	memset(runs, 0, sizeof(struct Record) * iters);
 
+#ifdef SYM_ELEVATE
+	sym_elevate();
+#endif
+
 	for (int i = 0; i < iters; i++)
 	{
 		memset(pfds, 0, sizeof(pfds));
@@ -1276,7 +1284,11 @@ static void poll_bench(size_t fd_count, int iters)
 		}
 
 		clock_gettime(CLOCK_MONOTONIC, &runs[i].start);
+#ifdef SYM_SHORTCUT
+		retval = sc_poll(pfds, fd_count, 0);
+#else
 		retval = syscall(SYS_poll, pfds, fd_count, 0);
+#endif
 		clock_gettime(CLOCK_MONOTONIC, &runs[i].end);
 
 		if (retval != fd_count)
@@ -1291,6 +1303,10 @@ static void poll_bench(size_t fd_count, int iters)
 				printf("[error] close failed in poll test %d.\n", fds[i]);
 		}
 	}
+
+#ifdef SYM_ELEVATE
+	sym_lower();
+#endif
 
 	for (int i = 0; i < iters; i++)
 	{
