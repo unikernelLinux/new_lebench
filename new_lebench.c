@@ -69,12 +69,11 @@ extern ssize_t bp_recvfrom(int socket, void *restrict buffer, size_t length, int
 #ifdef SYM_SHORTCUT
 typedef ssize_t (*write_t)(int fd, const void *buf, size_t count);
 typedef ssize_t (*read_t)(int fd, void *buf, size_t count);
-/* extern void   *bp_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset); */
-/* extern int     bp_munmap(void *addr, size_t length); */
+typedef void *(*mmap_t)(void *addr, size_t length, int prot, int flags, int fd, off_t offset);
+typedef void (*munmap_t)(void *addr, size_t length);
 /* extern int     bp_select(int nfds, fd_set *restrict readfds, fd_set *restrict writefds, fd_set *restrict exceptfds, struct timeval *restrict timeout); */
 /* extern int     bp_poll(struct pollfd *fds, nfds_t nfds, int timeout); */
 /* extern int     bp_epoll_wait(int epfd, struct epoll_event *events, int maxevents, int timeout); */
-/* pid_t   sc_getppid(void); */
 typedef pid_t (*getppid_t)(void);
 typedef ssize_t (*sendto_t)(int socket, const void *message, size_t length, int flags, const struct sockaddr *dest_addr, socklen_t dest_len);
 typedef ssize_t (*recvfrom_t)(int socket, void *restrict buffer, size_t length, int flags, struct sockaddr *restrict address, socklen_t *restrict address_len);
@@ -98,6 +97,8 @@ void_fn_ptr get_fn_address(char *symbol){
   return (void_fn_ptr) info->addr;
 }
 
+mmap_t     sc_mmap;
+munmap_t   sc_munmap;
 getppid_t  sc_getppid;
 write_t    sc_write;
 read_t     sc_read;
@@ -119,6 +120,12 @@ void init_sym_shortcuts(){
 
   sc_recvfrom  = (recvfrom_t) get_fn_address("__sys_recvfrom");
   printf("__x64_sys_recvfrom at %p\n", sc_recvfrom);
+
+  sc_mmap = (mmap_t) get_fn_address("__x64_sys_mmap");
+  printf("__x64_sys_mmap at %p\n", sc_mmap);
+
+  sc_munmap = (munmap_t) get_fn_address("__x64_sys_munmap");
+  printf("__x64_sys_munmap at %p\n", sc_munmap);
 }
 #endif
 
@@ -1504,15 +1511,28 @@ static void mmap_bench(size_t file_size)
 	if (fd < 0)
 		printf("invalid fd%d\n", fd);
 
+#ifdef SYM_ELEVATE
+      sym_elevate();
+#endif
+
 	for (i = 0; i < LOOP; i++)
 	{
 		runs[i].size = file_size;
 		clock_gettime(CLOCK_MONOTONIC, &runs[i].start);
+#ifdef SYM_SHORTCUT
+		void *addr = (void *)sc_mmap(NULL, file_size, PROT_READ, MAP_PRIVATE, fd, 0);
+#else
 		void *addr = (void *)syscall(SYS_mmap, NULL, file_size, PROT_READ, MAP_PRIVATE, fd, 0);
+#endif
 		clock_gettime(CLOCK_MONOTONIC,&runs[i].end);
 
 		syscall(SYS_munmap, addr, file_size);
 	}
+
+#ifdef SYM_ELEVATE
+      sym_lower();
+#endif
+
 	close(fd);
 
 	struct timespec diff;
@@ -1539,6 +1559,10 @@ static void munmap_bench(size_t file_size)
 					MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
 	memset(runs, 0, sizeof(struct Record) * LOOP);
 
+#ifdef SYM_ELEVATE
+      sym_elevate();
+#endif
+
 	for (i = 0; i < LOOP; i++)
 	{
 		void *addr = (void *)syscall(SYS_mmap, NULL, file_size, PROT_WRITE, MAP_PRIVATE, fd, 0);
@@ -1546,9 +1570,18 @@ static void munmap_bench(size_t file_size)
 			((char *)addr)[i] = 'b';
 		}
 		clock_gettime(CLOCK_MONOTONIC, &runs[i].start);
+#ifdef SYM_SHORTCUT
+		sc_munmap(addr, filesize);
+#else
 		syscall(SYS_munmap, addr, file_size);
+#endif
 		clock_gettime(CLOCK_MONOTONIC,&runs[i].end);
 	}
+
+#ifdef SYM_ELEVATE
+      sym_lower();
+#endif
+
 	close(fd);
 
 	struct timespec diff;
