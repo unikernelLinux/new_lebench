@@ -72,8 +72,6 @@ typedef ssize_t (*read_t)(int fd, void *buf, size_t count);
 typedef void *(*mmap_t)(void *addr, size_t length, int prot, int flags, int fd, off_t offset);
 typedef void (*munmap_t)(void *addr, size_t length);
 typedef int (*select_t)(int nfds, fd_set *restrict readfds, fd_set *restrict writefds, fd_set *restrict exceptfds, struct timeval *restrict timeout);
-typedef int (*poll_t)(struct pollfd *fds, nfds_t nfds, int timeout);
-typedef int (*epoll_t)(int epfd, struct epoll_event *events, int maxevents, int timeout);
 typedef pid_t (*getppid_t)(void);
 typedef ssize_t (*sendto_t)(int socket, const void *message, size_t length, int flags, const struct sockaddr *dest_addr, socklen_t dest_len);
 typedef ssize_t (*recvfrom_t)(int socket, void *restrict buffer, size_t length, int flags, struct sockaddr *restrict address, socklen_t *restrict address_len);
@@ -105,8 +103,6 @@ read_t     sc_read;
 sendto_t   sc_sendto;
 recvfrom_t sc_recvfrom;
 select_t   sc_select;
-poll_t     sc_poll;
-epoll_t    sc_epoll;
 
 void init_sym_shortcuts(){
   sc_getppid   = (getppid_t)  get_fn_address("__x64_sys_getppid");
@@ -124,20 +120,14 @@ void init_sym_shortcuts(){
   sc_recvfrom  = (recvfrom_t) get_fn_address("__sys_recvfrom");
   printf("__x64_sys_recvfrom at %p\n", sc_recvfrom);
 
-  sc_mmap = (mmap_t) get_fn_address("__x64_sys_mmap");
-  printf("__x64_sys_mmap at %p\n", sc_mmap);
+  sc_mmap = (mmap_t) get_fn_address("ksys_mmap_pgoff");
+  printf("ksys_mmap_pgoff at %p\n", sc_mmap);
 
   sc_munmap = (munmap_t) get_fn_address("__x64_sys_munmap");
   printf("__x64_sys_munmap at %p\n", sc_munmap);
 
-  sc_select = (select_t) get_fn_address("__x64_sys_select");
-  printf("__x64_sys_select at %p\n", sc_select);
-
-  sc_poll = (poll_t) get_fn_address("__x64_sys_poll");
-  printf("__x64_sys_poll at %p\n", sc_poll);
-
-  sc_epoll = (epoll_t) get_fn_address("__x64_sys_epoll_wait");
-  printf("__x64_sys_epoll_wait at %p\n", sc_epoll);
+  sc_select = (select_t) get_fn_address("kern_select");
+  printf("kern_select at %p\n", sc_select);
 }
 #endif
 
@@ -1288,11 +1278,7 @@ static void poll_bench(size_t fd_count, int iters)
 		}
 
 		clock_gettime(CLOCK_MONOTONIC, &runs[i].start);
-#ifdef SYM_SHORTCUT
-		retval = sc_poll(pfds, fd_count, 0);
-#else
 		retval = syscall(SYS_poll, pfds, fd_count, 0);
-#endif
 		clock_gettime(CLOCK_MONOTONIC, &runs[i].end);
 
 		if (retval != fd_count)
@@ -1379,11 +1365,7 @@ static void epoll_bench(size_t fd_count, int iters)
 
 		struct epoll_event *events = (struct epoll_event *)malloc(fd_count * sizeof(struct epoll_event));
 		clock_gettime(CLOCK_MONOTONIC, &runs[i].start);
-#ifdef SYM_SHORTCUT
-		retval = sc_epoll(epfd, events, fd_count, 0);
-#else
 		retval = epoll_wait(epfd, events, fd_count, 0);
-#endif
 		clock_gettime(CLOCK_MONOTONIC, &runs[i].end);
 
 		free(events);
