@@ -1386,7 +1386,7 @@ static void munmap_bench(size_t file_size)
 	for (i = 0; i < LOOP; i++)
 	{
 		calc_diff(&diff, &runs[i].end, &runs[i].start);
-		fprintf(fp, "%d,%ld,%ld.%09ld\n", i, runs[i].size, diff.tv_sec, diff.tv_nsec);
+		fprintf(fp, "%d,%ld,%ld.%09ld\n", i, file_size, diff.tv_sec, diff.tv_nsec);
 	}
 
 	munmap(runs, sizeof(struct Record) * LOOP);
