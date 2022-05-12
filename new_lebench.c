@@ -61,6 +61,7 @@ extern int bp_select(int nfds, fd_set *restrict readfds, fd_set *restrict writef
 extern int bp_poll(struct pollfd *fds, nfds_t nfds, int timeout);
 extern int bp_epoll_wait(int epfd, struct epoll_event *events, int maxevents, int timeout);
 extern pid_t bp_getppid(void);
+extern pid_t bp_getpid(void);
 extern ssize_t bp_sendto(int socket, const void *message, size_t length, int flags, const struct sockaddr *dest_addr, socklen_t dest_len);
 extern ssize_t bp_recvfrom(int socket, void *restrict buffer, size_t length, int flags, struct sockaddr *restrict address, socklen_t *restrict address_len);
 #endif
@@ -126,6 +127,39 @@ void calc_average(struct timespec *average, struct timespec *sum, int size)
 }
 
 //---------------------------------------------------------------------
+
+void getpid_bench(void)
+{
+	struct timespec diff = {0, 0};
+	int l;
+	int loop = 100000;
+	struct Record *runs;
+
+	runs = mmap(NULL, sizeof(struct Record) * loop, PROT_READ | PROT_WRITE,
+				MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+
+	memset(runs, 0, sizeof(struct Record) * loop);
+	for (l = 0; l < loop; l++)
+	{
+		clock_gettime(CLOCK_MONOTONIC, &runs[l].start);
+#ifdef BYPASS
+		bp_getpid();
+#else
+		syscall(SYS_getpid);
+#endif
+		clock_gettime(CLOCK_MONOTONIC, &runs[l].end);
+	}
+
+	for (l = 0; l < loop; l++)
+	{
+		calc_diff(&diff, &runs[l].end, &runs[l].start);
+		fprintf(fp, "%d,%ld.%09ld\n", l, diff.tv_sec, diff.tv_nsec);
+	}
+	fflush(fp);
+
+	munmap(runs, sizeof(struct Record) * loop);
+	return;
+}
 
 void getppid_bench(void)
 {
@@ -1442,6 +1476,12 @@ int main(void)
 	fprintf(fp, "Sr,latency\n");
 	fflush(fp);
 	getppid_bench();
+	fclose(fp);
+
+	fp = fopen("./new_lebench_getpid.csv", "w");
+	fprintf(fp, "Sr,latency\n");
+	fflush(fp);
+	getpid_bench();
 	fclose(fp);
 	printf("Reference benchmarks done\n");
 #endif
