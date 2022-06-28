@@ -29,7 +29,8 @@
 
 #define MAX_SIZE 8192
 #define PF_MAX_SIZE 100 * 4096
-#define LOOP 1000
+/* #define LOOP 1000 */
+#define LOOP 100
 #define STEP 256
 #define PF_STEP 4096
 #define CENT ((MAX_SIZE / STEP) / 100)

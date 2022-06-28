@@ -1,5 +1,6 @@
 DIR=$1
-STATS=" | datamash mean 1 median 1 pstdev 1 max 1 min 1"
+STATS=" | datamash mean 1 median 1 pstdev 1"
+echo $STATS
 function stats_basic () {
     TEST=$1
     MUNGE=$2
@@ -8,7 +9,7 @@ function stats_basic () {
     echo $TEST
     FILE=$DIR/new_lebench_$TEST.csv
     CMD="cat $FILE $MUNGE $STATS"
-    echo $CMD
+    # echo $CMD
     eval $CMD
 }
 

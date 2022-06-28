@@ -42,20 +42,22 @@ SYM_DEBUG=-UDEBUG
 SYM_SYS_LIBS=-pthread
 SYMBI=../Apps/libs/symlib/build/libsym.a ../Apps/libs/kallsymlib/libkallsym.a -I ../Apps/libs/symlib/include
 
+SYM_CC_DEBUG=-g
+
 # lazy
 sym: sym_lebench
 
 sym_lebench: new_lebench.c
-	gcc $< -o new_lebench $(SYM_SYS_LIBS) $(SYM_CONFIG) $(SYM_TESTS) $(SYM_DEBUG) $(SYMBI)
+	gcc $< -o new_lebench $(SYM_SYS_LIBS) $(SYM_CONFIG) $(SYM_TESTS) $(SYM_DEBUG) $(SYMBI) $(SYM_CC_DEBUG)
 
 sym_no_elevate: new_lebench.c
-	gcc $< -o $@ $(SYM_SYS_LIBS) $(SYM_CONFIG_NO_ELEVATE) $(SYM_TESTS) $(SYM_DEBUG) $(SYMBI)
+	gcc $< -o $@ $(SYM_SYS_LIBS) $(SYM_CONFIG_NO_ELEVATE) $(SYM_TESTS) $(SYM_DEBUG) $(SYMBI) $(SYM_CC_DEBUG)
 
 sym_elevate: new_lebench.c
-	gcc $< -o $@ $(SYM_SYS_LIBS) $(SYM_CONFIG) $(SYM_TESTS) $(SYM_DEBUG) $(SYMBI)
+	gcc $< -o $@ $(SYM_SYS_LIBS) $(SYM_CONFIG) $(SYM_TESTS) $(SYM_DEBUG) $(SYMBI) $(SYM_CC_DEBUG)
 
 sym_sc: new_lebench.c
-	gcc $< -o $@ $(SYM_SHORTCUT) $(SYM_SYS_LIBS) $(SYM_CONFIG) $(SYM_TESTS) $(SYM_DEBUG) $(SYMBI)
+	gcc $< -o $@ $(SYM_SHORTCUT) $(SYM_SYS_LIBS) $(SYM_CONFIG) $(SYM_TESTS) $(SYM_DEBUG) $(SYMBI) $(SYM_CC_DEBUG)
 
 sym_interpose_cores:
 # Core 0
@@ -89,6 +91,9 @@ sym_run_no_elevate:
 sym_run_elevate:
 	make sym_clean
 	make sym_elevate
+	sync
+	sync
+	sync
 	sudo ./sym_elevate
 	make sym_mv_csvs
 	mv output elevate
@@ -96,6 +101,9 @@ sym_run_elevate:
 sym_run_sc:
 	make sym_clean
 	make sym_sc
+	sync
+	sync
+	sync
 	sudo ./sym_sc
 	make sym_mv_csvs
 	mv output sc
