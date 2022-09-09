@@ -59,6 +59,11 @@ sym_elevate: new_lebench.c
 sym_sc: new_lebench.c
 	gcc $< -o $@ $(SYM_SHORTCUT) $(SYM_SYS_LIBS) $(SYM_CONFIG) $(SYM_TESTS) $(SYM_DEBUG) $(SYMBI) $(SYM_CC_DEBUG)
 
+BAREMETAL=../baremetal/initrd-tools/init-tools/perf
+init_mitigations:
+	sudo ./$(BAREMETAL)/disable_ht.sh
+	sudo ./$(BAREMETAL)/turbo-boost.sh disable
+
 sym_interpose_cores:
 # Core 0
 	cd ../Apps/bin/recipes/ && ./interposing_mitigator.sh -m tf -t 0 -d
@@ -86,7 +91,7 @@ sym_run_no_elevate:
 	make sym_no_elevate
 	sudo ./sym_no_elevate
 	make sym_mv_csvs
-	mv output no_elevate
+	mv output symbiote-baseline
 
 sym_run_elevate:
 	make sym_clean
@@ -96,7 +101,7 @@ sym_run_elevate:
 	sync
 	sudo ./sym_elevate
 	make sym_mv_csvs
-	mv output elevate
+	mv output symbiote-elevate
 
 sym_run_sc:
 	make sym_clean
@@ -106,13 +111,18 @@ sym_run_sc:
 	sync
 	sudo ./sym_sc
 	make sym_mv_csvs
-	mv output sc
+	mv output symbiote-shortcut
 
 sym_run_all:
 	make sym_run_no_elevate
 	make sym_run_elevate
 	make sym_run_sc
 
+
+benchmark_sym: init_mitigations sym_interpose_cores sym_run_all
+
+benchmark_vanilla: init_mitigations sym_run_no_elevate
+	mv symbiote-baseline Linux
 
 sym_clean_all: sym_clean
 	rm -rf elevate no_elevate sc
