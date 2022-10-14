@@ -40,7 +40,7 @@ SYM_CONFIG=-UUSE_VMALLOC -UBYPASS -DUSE_MALLOC -DSYM_ELEVATE
 SYM_CONFIG_NO_ELEVATE=-UUSE_VMALLOC -UBYPASS -DUSE_MALLOC
 SYM_DEBUG=-UDEBUG
 SYM_SYS_LIBS=-pthread
-SYMBI=../Apps/libs/symlib/build/libsym.a ../Apps/libs/kallsymlib/libkallsym.a -I ../Apps/libs/symlib/include
+SYMBI=../Symlib/build/libsym.a ../kallsymlib/libkallsym.a -I ../Symlib/include
 
 SYM_CC_DEBUG=-g
 
