@@ -36,7 +36,7 @@
 
 #define ADDR_HINT 0x300000000000
 
-#define CPU1 14
+#define CPU1 1
 
 FILE *fp;
 
@@ -48,12 +48,7 @@ struct Record
 };
 
 //---------------------------------------------------------------------
-#ifdef USE_VMALLOC
-extern void *vmalloc(unsigned long size);
-extern void vfree(const void *addr);
-#endif
-//---------------------------------------------------------------------
-#ifdef BYPASS
+#ifdef UKL_BP
 extern ssize_t bp_write(int fd, const void *buf, size_t count);
 extern ssize_t bp_read(int fd, void *buf, size_t count);
 extern void *bp_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset);
@@ -65,12 +60,6 @@ extern pid_t bp_getppid(void);
 extern pid_t bp_getpid(void);
 extern ssize_t bp_sendto(int socket, const void *message, size_t length, int flags, const struct sockaddr *dest_addr, socklen_t dest_len);
 extern ssize_t bp_recvfrom(int socket, void *restrict buffer, size_t length, int flags, struct sockaddr *restrict address, socklen_t *restrict address_len);
-#endif
-//---------------------------------------------------------------------
-#ifdef DEBUG
-#define DEBUG 1
-#else
-#define DEBUG 0
 #endif
 //---------------------------------------------------------------------
 
@@ -143,7 +132,7 @@ void getpid_bench(void)
 	for (l = 0; l < loop; l++)
 	{
 		clock_gettime(CLOCK_MONOTONIC, &runs[l].start);
-#ifdef BYPASS
+#ifdef UKL_BP
 		bp_getpid();
 #else
 		syscall(SYS_getpid);
@@ -176,7 +165,7 @@ void getppid_bench(void)
 	for (l = 0; l < loop; l++)
 	{
 		clock_gettime(CLOCK_MONOTONIC, &runs[l].start);
-#ifdef BYPASS
+#ifdef UKL_BP
 		bp_getppid();
 #else
 		syscall(SYS_getppid);
@@ -268,18 +257,10 @@ void write_bench(int file_size)
 	int fd, i, l;
 	struct Record *runs;
 
-#if defined(USE_VMALLOC)
-	buf = (char *)vmalloc(sizeof(char) * file_size);
-	runs = (struct Record*)vmalloc(sizeof(struct Record) * LOOP * 10);
-#elif defined(USE_MALLOC)
-	buf = (char *)malloc(sizeof(char) * file_size);
-	runs = (struct Record*)malloc(sizeof(struct Record) * LOOP * 10);
-#else
 	buf = (char *)syscall(SYS_mmap, (void *)ADDR_HINT, sizeof(char) * file_size,
 						  PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
 	runs = (struct Record*)mmap(NULL, sizeof(struct Record) * LOOP * 10, PROT_READ | PROT_WRITE,
 				MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-#endif
 
 	for (i = 0; i < file_size; i++)
 	{
@@ -296,7 +277,7 @@ void write_bench(int file_size)
 	for (l = 0; l < LOOP * 10; l++)
 	{
 		clock_gettime(CLOCK_MONOTONIC, &runs[l].start);
-#ifdef BYPASS
+#ifdef UKL_BP
 		bp_write(fd, buf, file_size);
 #else
 		syscall(SYS_write, fd, buf, file_size);
@@ -313,16 +294,8 @@ void write_bench(int file_size)
 	}
 	fflush(fp);
 
-#if defined(USE_VMALLOC)
-	vfree(buf);
-	vfree(runs);
-#elif defined(USE_MALLOC)
-	free(buf);
-	free(runs);
-#else
 	syscall(SYS_munmap, buf, file_size);
 	munmap(runs, sizeof(struct Record) * LOOP * 10);
-#endif
 
 	return;
 }
@@ -334,18 +307,10 @@ void read_bench(int file_size)
 	int fd, l, i;
 	struct Record *runs;
 
-#if defined(USE_VMALLOC)
-	buf = (char *)vmalloc(sizeof(char) * file_size);
-	runs = (struct Record*)vmalloc(sizeof(struct Record) * LOOP * 10);
-#elif defined(USE_MALLOC)
-	buf = (char *)malloc(sizeof(char) * file_size);
-	runs = (struct Record*)malloc(sizeof(struct Record) * LOOP * 10);
-#else
 	buf = (char *)syscall(SYS_mmap, (void *)ADDR_HINT, sizeof(char) * file_size,
 						  PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
 	runs = (struct Record*)mmap(NULL, sizeof(struct Record) * LOOP * 10, PROT_READ | PROT_WRITE,
 				MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-#endif
 	for (i = 0; i < file_size; i++)
 	{
 		buf[i] = i % 93;
@@ -361,7 +326,7 @@ void read_bench(int file_size)
 	for (l = 0; l < LOOP * 10; l++)
 	{
 		clock_gettime(CLOCK_MONOTONIC, &runs[l].start);
-#ifdef BYPASS
+#ifdef UKL_BP
 		bp_read(fd, buf, file_size);
 #else
 		syscall(SYS_read, fd, buf, file_size);
@@ -378,16 +343,8 @@ void read_bench(int file_size)
 	}
 	fflush(fp);
 
-#if defined(USE_VMALLOC)
-	vfree(buf);
-	vfree(runs);
-#elif defined(USE_MALLOC)
-	free(buf);
-	free(runs);
-#else
 	syscall(SYS_munmap, buf, file_size);
 	munmap(runs, sizeof(struct Record) * LOOP * 10);
-#endif
 
 	return;
 }
@@ -411,18 +368,10 @@ void send_bench(int msg_size)
 	strncpy(server_addr.sun_path, sock, sizeof(server_addr.sun_path) - 1);
 
 	// create a buffer (this needs to be mmap)
-#if defined(USE_VMALLOC)
-	buf = (char *)vmalloc(sizeof(char) * msg_size);
-	runs = (struct Record *)vmalloc(sizeof(struct Record) * LOOP);
-#elif defined(USE_MALLOC)
-	buf = (char *)malloc(sizeof(char) * msg_size);
-	runs = (struct Record *)malloc(sizeof(struct Record) * LOOP);
-#else
 	buf = (char *)syscall(SYS_mmap, (void *)ADDR_HINT, sizeof(char) * msg_size,
 						  PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
 	runs = (struct Record *)mmap(NULL, sizeof(struct Record) * LOOP, PROT_READ | PROT_WRITE,
 								MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-#endif
 
 	// write character 'a' in the buffer
 	for (int i = 0; i < msg_size; i++)
@@ -466,8 +415,6 @@ void send_bench(int msg_size)
 			retval = listen(fd_server, 10);
 			if (retval == -1)
 				printf("[error] failed to listen.\n");
-			if (DEBUG)
-				printf("Waiting for connection\n");
 
 			// Write to pipe 1 to let parent know we are listening
 			write(fds1[1], &w, 1);
@@ -475,8 +422,6 @@ void send_bench(int msg_size)
 			// wait for connection
 			int fd_connect = accept(fd_server, (struct sockaddr *)0,
 									(socklen_t *)0);
-			if (DEBUG)
-				printf("Connection accepted.\n");
 
 			// Read update from parent on pipe 2
 			read(fds2[0], &r, 1);
@@ -514,7 +459,7 @@ void send_bench(int msg_size)
 
 			// send buffer over to child and measure latency
 			clock_gettime(CLOCK_MONOTONIC, &runs[l].start);
-#ifdef BYPASS
+#ifdef UKL_BP
 			retval = bp_sendto(fd_client, buf, msg_size, MSG_DONTWAIT, NULL, 0);
 #else
 			retval = syscall(SYS_sendto, fd_client, buf, msg_size, MSG_DONTWAIT, NULL, 0);
@@ -545,16 +490,8 @@ void send_bench(int msg_size)
 	}
 	fflush(fp);
 
-#if defined(USE_VMALLOC)
-	vfree(buf);
-	vfree(runs);
-#elif defined(USE_MALLOC)
-	free(buf);
-	free(runs);
-#else
 	syscall(SYS_munmap, buf, msg_size);
 	munmap(runs, sizeof(struct Record) * LOOP);
-#endif
 
 	return;
 }
@@ -571,27 +508,16 @@ void recv_bench(int msg_size)
 	struct sockaddr_un server_addr;
 	struct Record *runs;
 
-	if (DEBUG)
-		printf("recv_bench(%d)\n", msg_size);
-
 	memset(&server_addr, 0, sizeof(struct sockaddr_un));
 	server_addr.sun_family = AF_UNIX;
 
 	strncpy(server_addr.sun_path, sock, sizeof(server_addr.sun_path) - 1);
 
 	// create a buffer (this needs to be mmap)
-#if defined(USE_VMALLOC)
-	buf = (char *)vmalloc(sizeof(char) * msg_size);
-	runs = (struct Record *)vmalloc(sizeof(struct Record) * LOOP);
-#elif defined(USE_MALLOC)
-	buf = (char *)malloc(sizeof(char) * msg_size);
-	runs = (struct Record *)malloc(sizeof(struct Record) * LOOP);
-#else
 	buf = (char *)syscall(SYS_mmap, (void *)ADDR_HINT, sizeof(char) * msg_size,
 						  PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
 	runs = (struct Record *)mmap(NULL, sizeof(struct Record) * LOOP, PROT_READ | PROT_WRITE,
 								MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-#endif
 
 	memset(runs, 0, sizeof(struct Record) * LOOP);
 
@@ -629,8 +555,6 @@ void recv_bench(int msg_size)
 			retval = listen(fd_server, 11);
 			if (retval == -1)
 				printf("[error] failed to listen.\n");
-			if (DEBUG)
-				printf("Waiting for connection\n");
 
 			// Write to pipe 1 to let parent know we are listening
 			write(fds1[1], &w, 1);
@@ -638,8 +562,6 @@ void recv_bench(int msg_size)
 			// wait for connection
 			int fd_connect = accept(fd_server, (struct sockaddr *)0,
 									(socklen_t *)0);
-			if (DEBUG)
-				printf("Connection accepted.\n");
 
 			// Read update from parent on pipe 2
 			read(fds2[0], &r, 1);
@@ -649,7 +571,7 @@ void recv_bench(int msg_size)
 
 			// recv data from child and measure latency
 			clock_gettime(CLOCK_MONOTONIC, &runs[l].start);
-#ifdef BYPASS
+#ifdef UKL_BP
 			retval = bp_recvfrom(fd_connect, buf, msg_size, MSG_DONTWAIT, NULL, NULL);
 #else
 			retval = syscall(SYS_recvfrom, fd_connect, buf, msg_size, MSG_DONTWAIT, NULL, NULL);
@@ -731,16 +653,8 @@ void recv_bench(int msg_size)
 	}
 	fflush(fp);
 
-#if defined(USE_VMALLOC)
-	vfree(buf);
-	vfree(runs);
-#elif defined(USE_MALLOC)
-	free(buf);
-	free(runs);
-#else
 	syscall(SYS_munmap, buf, msg_size);
 	munmap(runs, sizeof(struct Record) * LOOP);
-#endif
 
 	return;
 }
@@ -755,14 +669,8 @@ void fork_bench(void)
 	int forkId, l, status;
 	struct Record *runs;
 
-#if defined(USE_VMALLOC)
-	runs = (struct Record *)vmalloc(sizeof(struct Record) * LOOP);
-#elif defined(USE_MALLOC)
-	runs = (struct Record *)malloc(sizeof(struct Record) * LOOP);
-#else
 	runs = (struct Record *)mmap(NULL, sizeof(struct Record) * LOOP, PROT_READ | PROT_WRITE,
 								MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-#endif
 
 	memset(runs, 0, sizeof(struct Record) * LOOP);
 	memset(forkTime, 0, sizeof(struct timespec) * LOOP);
@@ -797,13 +705,7 @@ void fork_bench(void)
 
 	munmap(forkTime, sizeof(struct timespec));
 
-#if defined(USE_VMALLOC)
-	vfree(runs);
-#elif defined(USE_MALLOC)
-	free(runs);
-#else
 	munmap(runs, sizeof(struct Record) * LOOP);
-#endif
 
 	return;
 }
@@ -822,18 +724,10 @@ void thread_bench(void)
 	struct timespec *threads;
 	struct Record *runs;
 
-#if defined(USE_VMALLOC)
-	runs = (struct Record *)vmalloc(sizeof(struct Record) * LOOP);
-	threads = (struct timespec *)vmalloc(sizeof(struct timespec) * LOOP);
-#elif defined(USE_MALLOC)
-	runs = (struct Record *)malloc(sizeof(struct Record) * LOOP);
-	threads = (struct timespec *)malloc(sizeof(struct timespec) * LOOP);
-#else
 	runs = (struct Record *)mmap(NULL, sizeof(struct Record) * LOOP, PROT_READ | PROT_WRITE,
 								MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
 	threads = (struct timespec *)mmap(NULL, sizeof(struct timespec) * LOOP, PROT_READ | PROT_WRITE,
 								MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-#endif
 
 	memset(runs, 0, sizeof(struct Record) * LOOP);
 	memset(threads, 0, sizeof(struct timespec) * LOOP);
@@ -854,16 +748,8 @@ void thread_bench(void)
 	}
 	fflush(fp);
 
-#if defined(USE_VMALLOC)
-	vfree(runs);
-	vfree(threads);
-#elif defined(USE_MALLOC)
-	free(runs);
-	free(threads);
-#else
 	munmap(runs, sizeof(struct Record) * LOOP);
 	munmap(threads, sizeof(struct timespec) * LOOP);
-#endif
 
 	return;
 }
@@ -875,14 +761,8 @@ void pagefault_bench(int file_size)
 	int l, i;
 	char *addr;
 
-#if defined(USE_VMALLOC)
-	runs = (struct Record *)vmalloc(sizeof(struct Record) * LOOP);
-#elif defined(USE_MALLOC)
-	runs = (struct Record *)malloc(sizeof(struct Record) * LOOP);
-#else
 	runs = (struct Record *)mmap(NULL, sizeof(struct Record) * LOOP, PROT_READ | PROT_WRITE,
 								MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-#endif
 
 	memset(runs, 0, sizeof(struct Record) * LOOP);
 	for (l = 0; l < LOOP; l++)
@@ -909,13 +789,7 @@ void pagefault_bench(int file_size)
 	}
 	fflush(fp);
 
-#if defined(USE_VMALLOC)
-	vfree(runs);
-#elif defined(USE_MALLOC)
-	free(runs);
-#else
 	munmap(runs, sizeof(struct Record) * LOOP);
-#endif
 
 	return;
 }
@@ -926,14 +800,8 @@ void stack_pagefault_bench(int file_size)
 	char *addr;
 	struct Record *runs;
 
-#if defined(USE_VMALLOC)
-	runs = (struct Record *)vmalloc(sizeof(struct Record) * LOOP);
-#elif defined(USE_MALLOC)
-	runs = (struct Record *)malloc(sizeof(struct Record) * LOOP);
-#else
 	runs = (struct Record *)mmap(NULL, sizeof(struct Record) * LOOP, PROT_READ | PROT_WRITE,
 								MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-#endif
 
 	memset(runs, 0, sizeof(struct Record) * LOOP);
 	for (l = 0; l < LOOP; l++)
@@ -957,13 +825,7 @@ void stack_pagefault_bench(int file_size)
 	}
 	fflush(fp);
 
-#if defined(USE_VMALLOC)
-	vfree(runs);
-#elif defined(USE_MALLOC)
-	free(runs);
-#else
 	munmap(runs, sizeof(struct Record) * LOOP);
-#endif
 
 	return;
 }
@@ -975,14 +837,8 @@ static void fault_around_bench(int file_size)
 	int l, i;
 	char *addr;
 
-#if defined(USE_VMALLOC)
-	runs = (struct Record *)vmalloc(sizeof(struct Record) * LOOP);
-#elif defined(USE_MALLOC)
-	runs = (struct Record *)malloc(sizeof(struct Record) * LOOP);
-#else
 	runs = (struct Record *)mmap(NULL, sizeof(struct Record) * LOOP, PROT_READ | PROT_WRITE,
 								MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-#endif
 
 	int fd = open("test_file.txt", O_RDONLY);
 
@@ -1009,13 +865,7 @@ static void fault_around_bench(int file_size)
 	}
 	fflush(fp);
 
-#if defined(USE_VMALLOC)
-	vfree(runs);
-#elif defined(USE_MALLOC)
-	free(runs);
-#else
 	munmap(runs, sizeof(struct Record) * LOOP);
-#endif
 
 	return;
 }
@@ -1032,18 +882,10 @@ static void select_bench(size_t fd_count, int iters)
 	timeout.tv_sec = 0;
 	timeout.tv_usec = 0;
 
-#if defined(USE_VMALLOC)
-	fds = (int *)vmalloc(sizeof(int) * fd_count);
-	runs = (struct Record *)vmalloc(sizeof(struct Record) * iters);
-#elif defined(USE_MALLOC)
-	fds = (int *)malloc(sizeof(int) * fd_count);
-	runs = (struct Record *)malloc(sizeof(struct Record) * iters);
-#else
 	fds = (int *)mmap(NULL, sizeof(int) * fd_count, PROT_READ | PROT_WRITE,
 					MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
 	runs = (struct Record *)mmap(NULL, sizeof(struct Record) * iters, PROT_READ | PROT_WRITE,
 								MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-#endif
 
 	for (size_t i = 0; i < fd_count; i++)
 	{
@@ -1079,16 +921,8 @@ static void select_bench(size_t fd_count, int iters)
 	}
 	fflush(fp);
 
-#if defined(USE_VMALLOC)
-	vfree(fds);
-	vfree(runs);
-#elif defined(USE_MALLOC)
-	free(fds);
-	free(runs);
-#else
 	munmap(fds, sizeof(int) * fd_count);
 	munmap(runs, sizeof(struct Record) * iters);
-#endif
 }
 
 static void poll_bench(size_t fd_count, int iters)
@@ -1428,7 +1262,7 @@ static void munmap_bench(size_t file_size)
 	return;
 }
 
-#ifdef BYPASS
+#ifdef UKL_BP
 extern void set_bypass_limit(int val);
 extern void set_bypass_syscall(int val);
 #endif
@@ -1438,6 +1272,7 @@ int main(void)
 	int file_size, pf_size, retval;
 	int i = 0, percentage = 0;
 
+	/*
 	cpu_set_t set;
 	CPU_ZERO(&set);
 	CPU_SET(CPU1, &set);
@@ -1447,18 +1282,19 @@ int main(void)
 	retval = setpriority(PRIO_PROCESS, 0, -20);
 	if (retval == -1)
 		printf("[error] failed to set process priority.\n");
+	*/
 
 	remove("test_file.txt");
 	remove("tmp_file.txt");
 
-#ifdef BYPASS
-	// set_bypass_limit(50);
-	// set_bypass_syscall(1);
+#ifdef UKL_BP
+	set_bypass_limit(50);
+	set_bypass_syscall(1);
 #endif
 
 	//*************************************
 
-#ifdef REF_TEST
+#ifdef 0
 	printf("Starting reference benchmarks\n");
 
 	fp = fopen("./new_lebench_clock.csv", "w");
@@ -1472,6 +1308,7 @@ int main(void)
 	fflush(fp);
 	cpu_bench();
 	fclose(fp);
+#endif
 
 	fp = fopen("./new_lebench_getppid.csv", "w");
 	fprintf(fp, "Sr,latency\n");
@@ -1479,6 +1316,7 @@ int main(void)
 	getppid_bench();
 	fclose(fp);
 
+#ifdef 0
 	fp = fopen("./new_lebench_getpid.csv", "w");
 	fprintf(fp, "Sr,latency\n");
 	fflush(fp);
@@ -1489,7 +1327,7 @@ int main(void)
 
 	//*************************************
 
-#ifdef THREAD_TEST
+#ifdef 0
 	printf("Running Thread Create benchmarks\n");
 
 	fp = fopen("./new_lebench_thread.csv", "w");
@@ -1506,7 +1344,7 @@ int main(void)
 
 	//*************************************
 
-#ifdef FORK_TEST
+#ifdef 0
 	fp = fopen("./new_lebench_fork.csv", "w");
 
 	fprintf(fp, "Sr,LatencyParent,LatencyChild\n");
@@ -1521,7 +1359,6 @@ int main(void)
 
 	//*************************************
 
-#ifdef SEND_TEST
 	fp = fopen("./new_lebench_send.csv", "w");
 
 	fprintf(fp, "Sr,Size,Latency\n");
@@ -1545,11 +1382,9 @@ int main(void)
 	}
 
 	fclose(fp);
-#endif
 
 	//*************************************
 
-#ifdef RECV_TEST
 	fp = fopen("./new_lebench_recv.csv", "w");
 
 	fprintf(fp, "Sr,Size,Latency\n");
@@ -1573,11 +1408,9 @@ int main(void)
 	}
 
 	fclose(fp);
-#endif
 
 	//*************************************
 
-#ifdef WRITE_TEST
 	fp = fopen("./new_lebench_write.csv", "w");
 
 	fprintf(fp, "Sr,Size,Latency\n");
@@ -1601,11 +1434,9 @@ int main(void)
 	}
 
 	fclose(fp);
-#endif
 
 	//*************************************
 
-#ifdef READ_TEST
 	fp = fopen("./new_lebench_read.csv", "w");
 
 	fprintf(fp, "Sr,Size,Latency\n");
@@ -1629,9 +1460,8 @@ int main(void)
 	}
 
 	fclose(fp);
-#endif
 
-#ifdef MMAP_TEST
+#ifdef 0
 	fp = fopen("./new_lebench_mmap.csv", "w");
 
 	fprintf(fp, "Sr,Size,Latency\n");
@@ -1646,7 +1476,7 @@ int main(void)
 	fclose(fp);
 #endif
 
-#ifdef MUNMAP_TEST
+#ifdef 0
 	fp = fopen("./new_lebench_munmap.csv", "w");
 
 	fprintf(fp, "Sr,Size,Latency\n");
@@ -1663,7 +1493,7 @@ int main(void)
 
 	//*************************************
 
-#ifdef PF_TEST
+#ifdef 0
 	fp = fopen("./new_lebench_pagefault.csv", "w");
 
 	fprintf(fp, "Sr,Size,Latency\n");
@@ -1687,7 +1517,7 @@ int main(void)
 	fclose(fp);
 #endif
 
-#ifdef FAULT_AROUND_TEST
+#ifdef 0
 	fp = fopen("./new_lebench_fault_around.csv", "w");
 
 	fprintf(fp, "Sr,Size,Latency\n");
@@ -1713,7 +1543,6 @@ int main(void)
 
 	//*************************************
 
-#ifdef ST_PF_TEST
 	fp = fopen("./new_lebench_stackpagefault.csv", "w");
 
 	fprintf(fp, "Sr,Size,Latency\n");
@@ -1735,9 +1564,8 @@ int main(void)
 	}
 
 	fclose(fp);
-#endif
 
-#ifdef SELECT_TEST
+#ifdef 0
 	fp = fopen("./new_lebench_select.csv", "w");
 	fprintf(fp, "Index,Size,Latency\n");
 
@@ -1752,7 +1580,7 @@ int main(void)
 	fclose(fp);
 #endif
 
-#ifdef POLL_TEST
+#ifdef 0
 	fp = fopen("./new_lebench_poll.csv", "w");
 	fprintf(fp, "Index,Size,Latency\n");
 
@@ -1767,7 +1595,7 @@ int main(void)
 	fclose(fp);
 #endif
 
-#ifdef EPOLL_TEST
+#ifdef 0
 	fp = fopen("./new_lebench_epoll.csv", "w");
 	fprintf(fp, "Index,Size,Latency\n");
 
@@ -1782,7 +1610,7 @@ int main(void)
 	fclose(fp);
 #endif
 
-#ifdef CTX_SW_TEST
+#ifdef 0
 	fp = fopen("./new_lebench_context_switch.csv", "w");
 	fprintf(fp, "Index,Latency\n");
 
