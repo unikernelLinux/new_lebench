@@ -1294,7 +1294,7 @@ int main(void)
 
 	//*************************************
 
-#ifdef 0
+#if 0
 	printf("Starting reference benchmarks\n");
 
 	fp = fopen("./new_lebench_clock.csv", "w");
@@ -1316,7 +1316,7 @@ int main(void)
 	getppid_bench();
 	fclose(fp);
 
-#ifdef 0
+#if 0
 	fp = fopen("./new_lebench_getpid.csv", "w");
 	fprintf(fp, "Sr,latency\n");
 	fflush(fp);
@@ -1327,7 +1327,7 @@ int main(void)
 
 	//*************************************
 
-#ifdef 0
+#if 0
 	printf("Running Thread Create benchmarks\n");
 
 	fp = fopen("./new_lebench_thread.csv", "w");
@@ -1344,7 +1344,7 @@ int main(void)
 
 	//*************************************
 
-#ifdef 0
+#if 0
 	fp = fopen("./new_lebench_fork.csv", "w");
 
 	fprintf(fp, "Sr,LatencyParent,LatencyChild\n");
@@ -1461,7 +1461,7 @@ int main(void)
 
 	fclose(fp);
 
-#ifdef 0
+#if 0
 	fp = fopen("./new_lebench_mmap.csv", "w");
 
 	fprintf(fp, "Sr,Size,Latency\n");
@@ -1476,7 +1476,7 @@ int main(void)
 	fclose(fp);
 #endif
 
-#ifdef 0
+#if 0
 	fp = fopen("./new_lebench_munmap.csv", "w");
 
 	fprintf(fp, "Sr,Size,Latency\n");
@@ -1493,7 +1493,7 @@ int main(void)
 
 	//*************************************
 
-#ifdef 0
+#if 0
 	fp = fopen("./new_lebench_pagefault.csv", "w");
 
 	fprintf(fp, "Sr,Size,Latency\n");
@@ -1517,7 +1517,7 @@ int main(void)
 	fclose(fp);
 #endif
 
-#ifdef 0
+#if 0
 	fp = fopen("./new_lebench_fault_around.csv", "w");
 
 	fprintf(fp, "Sr,Size,Latency\n");
@@ -1565,7 +1565,7 @@ int main(void)
 
 	fclose(fp);
 
-#ifdef 0
+#if 0
 	fp = fopen("./new_lebench_select.csv", "w");
 	fprintf(fp, "Index,Size,Latency\n");
 
@@ -1580,7 +1580,7 @@ int main(void)
 	fclose(fp);
 #endif
 
-#ifdef 0
+#if 0
 	fp = fopen("./new_lebench_poll.csv", "w");
 	fprintf(fp, "Index,Size,Latency\n");
 
@@ -1595,7 +1595,7 @@ int main(void)
 	fclose(fp);
 #endif
 
-#ifdef 0
+#if 0
 	fp = fopen("./new_lebench_epoll.csv", "w");
 	fprintf(fp, "Index,Size,Latency\n");
 
@@ -1610,7 +1610,7 @@ int main(void)
 	fclose(fp);
 #endif
 
-#ifdef 0
+#if 0
 	fp = fopen("./new_lebench_context_switch.csv", "w");
 	fprintf(fp, "Index,Latency\n");
 
