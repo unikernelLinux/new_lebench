@@ -1,3 +1,4 @@
+// Code adapted from https://github.com/LinuxPerfStudy/LEBench
 #define _GNU_SOURCE
 #include <sched.h>
 #include <time.h>
@@ -1722,7 +1723,7 @@ int main(void)
 	while (pf_size < PF_MAX_SIZE)
 	{
 		pf_size = pf_size + PF_STEP;
-		pagefault_bench(pf_size);
+		stack_pagefault_bench(pf_size);
 		i++;
 		if (i > PF_CENT)
 		{
