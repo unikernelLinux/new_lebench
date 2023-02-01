@@ -27,7 +27,7 @@
 #include <errno.h>
 
 #define MAX_SIZE 8192
-#define PF_MAX_SIZE 100 * 4096
+#define PF_MAX_SIZE 409600
 #define LOOP 1000
 #define STEP 256
 #define PF_STEP 4096
@@ -794,37 +794,30 @@ void pagefault_bench(int file_size)
 	return;
 }
 
-void stack_pagefault_bench(int file_size)
+void stack_pagefault_bench(int file_size, int fds[2])
 {
+	struct timespec diff = {0, 0};
 	int l, i;
 	char *addr;
 	struct Record *runs;
-
 	runs = (struct Record *)mmap(NULL, sizeof(struct Record) * LOOP, PROT_READ | PROT_WRITE,
 								MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-
 	memset(runs, 0, sizeof(struct Record) * LOOP);
+
+	i = 0;
 	for (l = 0; l < LOOP; l++)
 	{
-		addr = (char *)alloca(file_size * sizeof(long));
+		addr = (char *)alloca(file_size);
 		clock_gettime(CLOCK_MONOTONIC, &runs[l].start);
-		i = 0;
 		while (i < file_size)
 		{
-			addr[i] = i % 93 + 33;
 			i = i + 4096;
+			addr[file_size-i] = i % 93 + 33;
 		}
 		clock_gettime(CLOCK_MONOTONIC, &runs[l].end);
 	}
 
-	for (l = 0; l < LOOP; l++)
-	{
-		struct timespec diff;
-		calc_diff(&diff, &runs[l].end, &runs[l].start);
-		fprintf(fp, "%d,%d,%ld.%09ld\n", l, file_size, diff.tv_sec, diff.tv_nsec);
-	}
-	fflush(fp);
-
+	write(fds[1], runs, sizeof(struct Record) * LOOP);
 	munmap(runs, sizeof(struct Record) * LOOP);
 
 	return;
@@ -1359,6 +1352,7 @@ int main(void)
 
 	//*************************************
 
+#if 0
 	fp = fopen("./new_lebench_send.csv", "w");
 
 	fprintf(fp, "Sr,Size,Latency\n");
@@ -1460,6 +1454,7 @@ int main(void)
 	}
 
 	fclose(fp);
+#endif
 
 #if 0
 	fp = fopen("./new_lebench_mmap.csv", "w");
@@ -1547,12 +1542,56 @@ int main(void)
 
 	fprintf(fp, "Sr,Size,Latency\n");
 	fflush(fp);
+	
+	struct timespec diff = {0, 0};
+	int l;
+
+	struct Record *spruns;
+	int status = 0, forkId;
+	int fds[2];
+	
 	pf_size = 0;
 	i = 0;
 	while (pf_size < PF_MAX_SIZE)
 	{
 		pf_size = pf_size + PF_STEP;
-		stack_pagefault_bench(pf_size);
+	
+		spruns = (struct Record *)mmap(NULL, sizeof(struct Record) * LOOP, PROT_READ | PROT_WRITE,
+									MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+		memset(spruns, 0, sizeof(struct Record) * LOOP);
+		
+		pipe(fds);
+	
+		forkId = fork();
+		if (forkId < 0)
+	        {
+	                printf("[error] fork failed.\n");
+	                return -1;
+	        }
+	        if (forkId == 0) // child
+	        {
+			close(fds[0]); // close the read end of pipe
+			stack_pagefault_bench(pf_size, fds);
+			close(fds[1]); // close the write end of pipe
+			exit(0);
+		}
+		close(fds[1]); // close the write end of pipe
+		read(fds[0], spruns, sizeof(struct Record) * LOOP);
+		close(fds[0]);
+		wait(&status);
+		
+		for (l = 0; l < LOOP; l++)
+		{
+			struct timespec diff;
+			calc_diff(&diff, &spruns[l].end, &spruns[l].start);
+			fprintf(fp, "%d,%d,%ld.%09ld\n", l, file_size, diff.tv_sec, diff.tv_nsec);
+		}
+		fflush(fp);
+		munmap(spruns, sizeof(struct Record) * LOOP);
+
+
+
+
 		i++;
 		if (i > PF_CENT)
 		{
