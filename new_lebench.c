@@ -1310,11 +1310,13 @@ int main(void)
 	fclose(fp);
 #endif
 
+#if 0
 	fp = fopen("./new_lebench_getppid.csv", "w");
 	fprintf(fp, "Sr,latency\n");
 	fflush(fp);
 	getppid_bench();
 	fclose(fp);
+#endif
 
 #if 0
 	fp = fopen("./new_lebench_getpid.csv", "w");
@@ -1359,6 +1361,7 @@ int main(void)
 
 	//*************************************
 
+#if 0
 	fp = fopen("./new_lebench_send.csv", "w");
 
 	fprintf(fp, "Sr,Size,Latency\n");
@@ -1460,6 +1463,7 @@ int main(void)
 	}
 
 	fclose(fp);
+#endif
 
 #if 0
 	fp = fopen("./new_lebench_mmap.csv", "w");
@@ -1493,6 +1497,7 @@ int main(void)
 
 	//*************************************
 
+#if 0
 	fp = fopen("./new_lebench_pagefault.csv", "w");
 
 	fprintf(fp, "Sr,Size,Latency\n");
@@ -1514,6 +1519,7 @@ int main(void)
 	}
 
 	fclose(fp);
+#endif
 
 #if 0
 	fp = fopen("./new_lebench_fault_around.csv", "w");
@@ -1541,7 +1547,6 @@ int main(void)
 
 	//*************************************
 
-#if 0
 	fp = fopen("./new_lebench_stackpagefault.csv", "w");
 
 	fprintf(fp, "Sr,Size,Latency\n");
@@ -1563,7 +1568,6 @@ int main(void)
 	}
 
 	fclose(fp);
-#endif
 
 #if 0
 	fp = fopen("./new_lebench_select.csv", "w");
