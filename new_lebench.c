@@ -29,9 +29,9 @@
 #define MAX_SIZE 8192
 #define PF_MAX_SIZE 409600
 #define LOOP 10000
-#define PF_LOOP 5
+#define PF_LOOP 20
 #define STEP 256
-#define PF_STEP 4096
+#define PF_STEP 4096*5
 #define CENT ((MAX_SIZE / STEP) / 100)
 #define PF_CENT ((PF_MAX_SIZE / PF_STEP) / 100)
 
@@ -815,6 +815,7 @@ void stack_pagefault_bench(int file_size)
 	for (l = 0; l < PF_LOOP; l++)
 	{
 		forkId = fork();
+		usleep(10);
 		if (forkId < 0)
 	        {
 	                printf("[error] fork failed.\n");
@@ -845,7 +846,6 @@ void stack_pagefault_bench(int file_size)
 			close(fds[1]); // close the write end of pipe
 			exit(0);
 		}
-		usleep(10);
 		read(fds[0], &runs[l], sizeof(struct Record));
 		wait(&status);
 	}
