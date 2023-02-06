@@ -29,7 +29,7 @@
 #define MAX_SIZE 8192
 #define PF_MAX_SIZE 409600
 #define LOOP 10000
-#define PF_LOOP 10000
+#define PF_LOOP 50
 #define STEP 256
 #define PF_STEP 4096
 #define CENT ((MAX_SIZE / STEP) / 100)
@@ -831,7 +831,7 @@ void stack_pagefault_bench(int file_size)
 			close(fds[0]); // close the read end of pipe
 			i = 0;
 			waste = (char *)alloca(4096*10); // to ensure new buffer is on a fresh page
-			
+			waste[4096*9] = *"a";
 			addr = (char *)alloca(file_size);
 			clock_gettime(CLOCK_MONOTONIC, &spruns->start);
 			while (i < file_size)
