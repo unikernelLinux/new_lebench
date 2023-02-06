@@ -29,7 +29,7 @@
 #define MAX_SIZE 8192
 #define PF_MAX_SIZE 409600
 #define LOOP 10000
-#define PF_LOOP 20
+#define PF_LOOP 10000
 #define STEP 256
 #define PF_STEP 4096
 #define CENT ((MAX_SIZE / STEP) / 100)
@@ -812,56 +812,44 @@ void stack_pagefault_bench(int file_size)
 	
 	pipe(fds);
 
-	forkId = fork();
-	if (forkId < 0)
-        {
-                printf("[error] fork failed.\n");
-                return;
-        }
-        if (forkId == 0) // child
-        {
-		/*
-		 * struct rlimit old, new;
-		 * prlimit(0, RLIMIT_STACK, NULL, &old);
-		 * printf("Previous limits: soft=%jd; hard=%jd\n",
-		 * 	(intmax_t) old.rlim_cur, (intmax_t) old.rlim_max);
-		 */
-		struct Record *spruns;
-		spruns = (struct Record *)mmap(NULL, \
-				sizeof(struct Record) * PF_LOOP, PROT_READ | PROT_WRITE,
-				MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-		memset(spruns, 0, sizeof(struct Record) * PF_LOOP);
-		close(fds[0]); // close the read end of pipe
-		for (l = 0; l < PF_LOOP; l++)
-		{
+	for (l = 0; l < PF_LOOP; l++)
+	{
+		forkId = fork();
+		if (forkId < 0)
+	        {
+	                printf("[error] fork failed.\n");
+	                return;
+	        }
+	        if (forkId == 0) // child
+	        {
+			close(fds[0]); // close the read end of pipe
+			struct Record *spruns;
+			spruns = (struct Record *)mmap(NULL, \
+					sizeof(struct Record), PROT_READ | PROT_WRITE,
+					MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+			memset(spruns, 0, sizeof(struct Record));
+			close(fds[0]); // close the read end of pipe
 			i = 0;
-			waste = (char *)alloca(4096); // to ensure new buffer is on a fresh page
+			waste = (char *)alloca(4096*10); // to ensure new buffer is on a fresh page
 			
 			addr = (char *)alloca(file_size);
-			clock_gettime(CLOCK_MONOTONIC, &spruns[l].start);
+			clock_gettime(CLOCK_MONOTONIC, &spruns->start);
 			while (i < file_size)
 			{
 				i = i + 4096;
-				/*
-				 * fprintf(fp, "l = %d\taddr = 0x%lx\tfile_size-i = 0x%lx\
-				 * \tfile_size = 0x%lx\taddr[file_size-i] = 0x%lx\n",
-				 * l, addr, file_size-i, file_size, &addr[file_size-i]);
-				 */
 				addr[file_size-i] = i % 93 + 33;
 			}
-			clock_gettime(CLOCK_MONOTONIC, &spruns[l].end);
-			fflush(fp);
-
+			clock_gettime(CLOCK_MONOTONIC, &spruns->end);
+			write(fds[1], spruns, sizeof(struct Record));
+			munmap(spruns, sizeof(struct Record));
+			close(fds[1]); // close the write end of pipe
+			exit(0);
 		}
-		write(fds[1], spruns, sizeof(struct Record) * PF_LOOP);
-		munmap(spruns, sizeof(struct Record) * PF_LOOP);
-		close(fds[1]); // close the write end of pipe
-		exit(0);
+		read(fds[0], &runs[l], sizeof(struct Record));
+		wait(&status);
 	}
 	close(fds[1]); // close the write end of pipe
-	read(fds[0], runs, sizeof(struct Record) * PF_LOOP);
 	close(fds[0]);
-	wait(&status);
 		
 	for (l = 0; l < PF_LOOP; l++)
 	{
