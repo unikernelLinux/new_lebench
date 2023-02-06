@@ -29,7 +29,7 @@
 #define MAX_SIZE 8192
 #define PF_MAX_SIZE 409600
 #define LOOP 10000
-#define PF_LOOP 50
+#define PF_LOOP 5
 #define STEP 256
 #define PF_STEP 4096
 #define CENT ((MAX_SIZE / STEP) / 100)
@@ -845,6 +845,7 @@ void stack_pagefault_bench(int file_size)
 			close(fds[1]); // close the write end of pipe
 			exit(0);
 		}
+		usleep(10);
 		read(fds[0], &runs[l], sizeof(struct Record));
 		wait(&status);
 	}
